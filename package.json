@@ -17,14 +17,20 @@
             {
                 "command": "simple-text-refine-with-gpt.callGPT",
                 "title": "Simple Text Refine w/ GPT: call GPT"
+            },
+            {
+                "command": "simple-text-refine-with-gpt.openPrompt",
+                "title": "Simple Text Refine w/ GPT: open prompt file"
             }
         ],
         "languages": [
             {
-                "id": "simple-text-refine-with-gpt",
+                "id": "yaml",
                 "extensions": [
-                    ".*"
-                ]
+                    ".prompt"
+                ],
+                "aliases": ["YAML", "yaml"],
+                "filenames": []
             }
         ],
         "configuration": {
