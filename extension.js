@@ -12,12 +12,7 @@ const MODEL = "gpt-3.5-turbo-1106"
 // vscode APIの設定としてAPI_KEYを設定・取得する
 function getAPIKey() {
     const config = vscode.workspace.getConfiguration(EXT_NAME)
-    const apikey = config.get('api_key')
-    if (apikey === undefined) {
-        vscode.window.showErrorMessage('API Key is not set')
-        return
-    }
-    return apikey
+    return config.get('api_key')
 }
 
 function helloWorld() {
@@ -67,6 +62,14 @@ function makeContent(situation, text) {
 // openaiが提供するライブラリがあるならそれを使う
 async function gptExample(wholeText) {
     const apiKey = getAPIKey()
+    if (! apiKey) {
+        // 設定画面を開くリンクを含むnotificationを表示する
+        vscode.window.showErrorMessage('API Key is not set', 'Open Settings').then(selection => {
+            if (selection === 'Open Settings') {
+                vscode.commands.executeCommand('workbench.action.openSettings', EXT_NAME)
+            }
+        })
+    }
     const openai = new OpenAI({apiKey})
 
     console.log({apiKey, openai})
