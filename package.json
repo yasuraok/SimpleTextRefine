@@ -1,0 +1,46 @@
+{
+    "name": "simple-text-refine-with-gpt",
+    "version": "0.0.1",
+    "engines": {
+        "vscode": "^1.84.1"
+    },
+    "main": "./extension.js",
+    "activationEvents": [
+        "onStartupFinished"
+    ],
+    "contributes": {
+        "commands": [
+            {
+                "command": "simple-text-refine-with-gpt.helloWorld",
+                "title": "Simple Text Refine w/ GPT: say hello world"
+            },
+            {
+                "command": "simple-text-refine-with-gpt.callGPT",
+                "title": "Simple Text Refine w/ GPT: call GPT"
+            }
+        ],
+        "languages": [
+            {
+                "id": "simple-text-refine-with-gpt",
+                "extensions": [
+                    ".*"
+                ]
+            }
+        ],
+        "configuration": {
+            "type": "object",
+            "title": "Simple Text Refine w/ GPT",
+            "properties": {
+                "simple-text-refine-with-gpt.api_key": {
+                    "type": "string",
+                    "default": "",
+                    "description": "OpenAI API key"
+                }
+            }
+        }
+    },
+    "dependencies": {
+        "diff-match-patch": "^1.0.5",
+        "openai": "^4.23.0"
+    }
+}
