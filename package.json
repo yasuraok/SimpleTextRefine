@@ -40,7 +40,6 @@
         }
     },
     "dependencies": {
-        "diff-match-patch": "^1.0.5",
         "openai": "^4.23.0"
     }
 }
