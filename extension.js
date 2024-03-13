@@ -33,12 +33,11 @@ function makeUserMsg(text) {
     }
 }
 
-async function getSystemPrompt(filePath) {
-    const promptFile = await findPrompt(filePath)
-    if(! promptFile) {
+async function getSystemPrompt(promptPath) {
+    if(! promptPath) {
         vscode.window.showErrorMessage('.prompt not found')
     }
-    const promptText = await vscode.workspace.openTextDocument(promptFile).then(doc => doc.getText())
+    const promptText = await vscode.workspace.openTextDocument(promptPath).then(doc => doc.getText())
 
     // yaml配列になっているのでそれをパース
     const promptYaml = jsyaml.load(promptText)
@@ -62,7 +61,7 @@ async function getSystemPrompt(filePath) {
 
 // openAI GPT APIを使って文章を添削する
 // 使うエンドポイントはclient.chat.completions.create
-async function gptExample(text, filePath) {
+async function gptExample(text, promptPath) {
     const apiKey = getConfigValue('api_key')
     const model = getConfigValue('model') || DEFAULT_MODEL
     if (! apiKey) {
@@ -75,7 +74,7 @@ async function gptExample(text, filePath) {
     }
     const openai = new OpenAI({apiKey})
 
-    const systemPrompt = await getSystemPrompt(filePath)
+    const systemPrompt = await getSystemPrompt(promptPath)
 
     const messages = [makeSystemMsg(systemPrompt), makeUserMsg(text)]
     vscode.window.showInformationMessage(`calling ${model}...: ${systemPrompt}`)
@@ -148,17 +147,17 @@ async function openPrompt(textEditor, textEditorEdit) {
 }
 
 // inputTextをGPTに添削させ、結果をVSCode上に表示する
-async function callGPTAndOpenEditor(inputText, textEditor) {
+async function callGPTAndOpenEditor(inputText, uri, promptPath) {
     // gptExampleを使って文章を添削する
-    const newText = await gptExample(inputText, textEditor.document.uri.fsPath)
+    const newText = await gptExample(inputText, promptPath)
 
     // GPTの応答を*.gptという名前のファイルに書き込む
-    const newUri = textEditor.document.uri.with({path: textEditor.document.uri.path + '.gpt'})
+    const newUri = uri.with({path: uri.path + '.gpt'})
     const newFile = vscode.Uri.file(newUri.path)
     await vscode.workspace.fs.writeFile(newFile, Buffer.from(newText))
 
     // そのファイルをvscode.diffで表示する。現時点ではleft -> right方向だけdiffを適用できるので、gptExampleの結果をleftに表示する
-    await vscode.commands.executeCommand('vscode.diff', newUri, textEditor.document.uri)
+    await vscode.commands.executeCommand('vscode.diff', newUri, uri)
 
     // // そのファイルを別タブとして開く
     // const doc = await vscode.workspace.openTextDocument(newUri)
@@ -168,13 +167,17 @@ async function callGPTAndOpenEditor(inputText, textEditor) {
 // ファイル全体をGPTに添削させる
 async function callGPTWhole(textEditor, textEditorEdit) {
     const wholeText = textEditor.document.getText()
-    return await callGPTAndOpenEditor(wholeText, textEditor)
+    const uri = textEditor.document.uri
+    const promptPath = await findPrompt(uri.fsPath)
+    return await callGPTAndOpenEditor(wholeText, uri, promptPath)
 }
 
 // 選択範囲のテキストのみをGPTに添削させる
 async function callGPTSelected(textEditor, textEditorEdit) {
     const selectedText = textEditor.document.getText(textEditor.selection)
-    return await callGPTAndOpenEditor(selectedText, textEditor)
+    const uri = textEditor.document.uri
+    const promptPath = await findPrompt(uri.fsPath)
+    return await callGPTAndOpenEditor(selectedText, uri, promptPath)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
