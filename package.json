@@ -16,12 +16,8 @@
                 "title": "Simple Text Refine w/ GPT: say hello world"
             },
             {
-                "command": "simple-text-refine-with-gpt.callGPT",
-                "title": "Simple Text Refine w/ GPT: call GPT by whole Text"
-            },
-            {
                 "command": "simple-text-refine-with-gpt.callGPTSelected",
-                "title": "Simple Text Refine w/ GPT: call GPT by selected Text"
+                "title": "Simple Text Refine w/ GPT: call GPT with selected Text"
             },
             {
                 "command": "simple-text-refine-with-gpt.changeModel",

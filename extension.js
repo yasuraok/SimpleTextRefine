@@ -1,5 +1,5 @@
 const vscode = require('vscode')
-const { callGPT } = require('./callGPT')
+const { callGPTStream } = require('./callGPT')
 const { findPrompt, openPrompt } = require('./prompt')
 
 const EXT_NAME = "simple-text-refine-with-gpt"
@@ -27,7 +27,7 @@ async function changeModel() {
     }
 }
 
-async function callGPTAndOpenEditor(text, uri){
+async function setupGPTParam(uri){
     const promptPath = await findPrompt(uri.fsPath)
     const apiKey = getConfigValue('api_key')
     const model = getConfigValue('model') || DEFAULT_MODEL
@@ -46,7 +46,7 @@ async function callGPTAndOpenEditor(text, uri){
     }
     const promptText = await vscode.workspace.openTextDocument(promptPath).then(doc => doc.getText())
 
-    return await callGPT(text, promptText, apiKey, model)
+    return {promptText, apiKey, model}
 }
 
 async function openDiff(textEditor, textEditorEdit){
@@ -56,6 +56,52 @@ async function openDiff(textEditor, textEditorEdit){
     // そのファイルをvscode.diffで表示する。現時点ではleft -> right方向だけdiffを適用できるので、gptExampleの結果をleftに表示する
     await vscode.commands.executeCommand('vscode.diff', newUri, uri)
 }
+
+async function callGPTAndOpenDiff(textEditor, textEditorEdit) {
+    const wholeText = textEditor.document.getText()
+    const selectedText = textEditor.document.getText(textEditor.selection)
+    if(selectedText.length === 0) {
+        vscode.window.showErrorMessage('No text selected')
+        return
+    }
+    const uri = textEditor.document.uri
+    const {promptText, apiKey, model} = await setupGPTParam(uri)
+
+    let diffShown = false
+    const showGPTResult = async (gptText) => {
+        // 選択範囲をGPT応答に差し替えて、*.gptという名前のファイルに書き込む
+        const newUri = uri.with({path: uri.path + '.gpt'})
+        const newFile = vscode.Uri.file(newUri.path)
+        const gptWholeText = wholeText.replace(selectedText, gptText)
+        await vscode.workspace.fs.writeFile(newFile, Buffer.from(gptWholeText))
+
+        // そのファイルをvscode.diffで表示する。現時点ではleft -> right方向だけdiffを適用できるので、gptExampleの結果をleftに表示する
+        if (! diffShown){
+            await vscode.commands.executeCommand('vscode.diff', newUri, uri)
+            diffShown = true
+        }
+    }
+
+    // callbackでgptの結果を受け取るが、頻度が高すぎるので
+    // 5秒おきにcontentの内容をエディタに反映する周期処理を横で走らせる
+    let lastUpdated = null
+    let gptText = ""
+    await callGPTStream(selectedText, promptText, apiKey, model, (delta) => {
+        gptText += delta
+        // ステータスバーには直近50文字だけ表示する
+        const statusText = gptText.slice(-50).replace(/\n/g, ' ')
+        vscode.window.setStatusBarMessage(statusText, 5000)
+        // 2秒経過した場合に限りエディタ内も更新
+        if (lastUpdated === null || Date.now() - lastUpdated > 2000) {
+            showGPTResult(gptText)
+            lastUpdated = Date.now()
+        }
+    })
+    showGPTResult(gptText)
+
+    vscode.window.setStatusBarMessage('finished.', 5000)
+}
+
 
 ///////////////////////////////////////////////////////////////////////////////
 function activate(context) {
@@ -73,53 +119,10 @@ function activate(context) {
         changeModel
     ))
 
-    // ファイル全体をGPTに添削させる
-    context.subscriptions.push(vscode.commands.registerTextEditorCommand(
-        `${EXT_NAME}.callGPT`,
-        async (textEditor, textEditorEdit) => {
-            const wholeText = textEditor.document.getText()
-            const uri = textEditor.document.uri
-            const gptText = await callGPTAndOpenEditor(wholeText, uri)
-
-            // GPTの応答を*.gptという名前のファイルに書き込む
-            const newUri = uri.with({path: uri.path + '.gpt'})
-            const newFile = vscode.Uri.file(newUri.path)
-            await vscode.workspace.fs.writeFile(newFile, Buffer.from(gptText))
-
-            // そのファイルをvscode.diffで表示する。現時点ではleft -> right方向だけdiffを適用できるので、gptExampleの結果をleftに表示する
-            await vscode.commands.executeCommand('vscode.diff', newUri, uri)
-
-            // // そのファイルを別タブとして開く
-            // const doc = await vscode.workspace.openTextDocument(newUri)
-            // await vscode.window.showTextDocument(doc, vscode.ViewColumn.Beside)
-        }
-    ))
-
     // 選択範囲のテキストのみをGPTに添削させる
     context.subscriptions.push(vscode.commands.registerTextEditorCommand(
         `${EXT_NAME}.callGPTSelected`,
-        async (textEditor, textEditorEdit) => {
-            const selectedText = textEditor.document.getText(textEditor.selection)
-            if(selectedText.length === 0) {
-                vscode.window.showErrorMessage('No text selected')
-                return
-            }
-            const uri = textEditor.document.uri
-            const gptText = await callGPTAndOpenEditor(selectedText, uri)
-
-            // 選択範囲をGPT応答に差し替えて、*.gptという名前のファイルに書き込む
-            const newUri = uri.with({path: uri.path + '.gpt'})
-            const newFile = vscode.Uri.file(newUri.path)
-            const gptWholeText = textEditor.document.getText().replace(selectedText, gptText)
-            await vscode.workspace.fs.writeFile(newFile, Buffer.from(gptWholeText))
-
-            // そのファイルをvscode.diffで表示する。現時点ではleft -> right方向だけdiffを適用できるので、gptExampleの結果をleftに表示する
-            await vscode.commands.executeCommand('vscode.diff', newUri, uri)
-
-            // // そのファイルを別タブとして開く
-            // const doc = await vscode.workspace.openTextDocument(newUri)
-            // await vscode.window.showTextDocument(doc, vscode.ViewColumn.Beside)
-        }
+        callGPTAndOpenDiff
     ))
 
     // プロンプトファイルを開く

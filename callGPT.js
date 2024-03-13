@@ -37,7 +37,6 @@ async function getSystemPrompt(promptText) {
 
     const result = await vscode.window.showQuickPick(items);
     if (result) {
-        vscode.window.showInformationMessage(`Got: ${result.label}`);
         return result.label
     } else {
         vscode.window.showWarningMessage(`Failed to get`);
@@ -45,24 +44,33 @@ async function getSystemPrompt(promptText) {
 }
 
 // openAI GPT APIを使って文章を添削する
-// 使うエンドポイントはclient.chat.completions.create
-async function callGPT(text, promptText, apiKey, model) {
+async function callGPTStream(text, promptText, apiKey, model, callback) {
     const openai = new OpenAI({apiKey})
 
     const systemPrompt = await getSystemPrompt(promptText)
-
     const messages = [makeSystemMsg(systemPrompt), makeUserMsg(text)]
+
     vscode.window.showInformationMessage(`calling ${model}...: ${systemPrompt}`)
 
-    const res = await openai.chat.completions.create({
+    const responses = await openai.chat.completions.create({
         model,
         messages,
-    })
-    console.log(res)
-    const content = res.choices[0].message.content
-    console.log({content})
-    vscode.window.showInformationMessage(`finished.`)
-    return content
+        stream: true,
+    });
+
+    // ストリーミング処理
+    let content = "";
+    for await (const response of responses) {
+        const delta = response.choices[0].delta;
+        if (delta.content) {
+            content += delta.content;
+            callback(delta.content) // コールバックで通知
+        } else {
+            // 終わり
+        }
+    }
+
+    return content;
 }
 
-module.exports = { callGPT }
+module.exports = { callGPTStream }
