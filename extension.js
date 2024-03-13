@@ -93,7 +93,7 @@ async function callGPTAndOpenDiff(textEditor, textEditorEdit) {
         vscode.window.setStatusBarMessage(statusText, 5000)
         // 2秒経過した場合に限りエディタ内も更新
         if (lastUpdated === null || Date.now() - lastUpdated > 2000) {
-            showGPTResult(gptText)
+            showGPTResult(gptText + "\n")
             lastUpdated = Date.now()
         }
     })
