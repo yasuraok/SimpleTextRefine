@@ -1,5 +1,5 @@
 const vscode = require('vscode')
-const { callGPTAndOpenEditor } = require('./callGPT')
+const { callGPT } = require('./callGPT')
 const { findPrompt, openPrompt } = require('./prompt')
 
 const EXT_NAME = "simple-text-refine-with-gpt"
@@ -27,7 +27,7 @@ async function changeModel() {
     }
 }
 
-async function callGPT(text, uri){
+async function callGPTAndOpenEditor(text, uri){
     const promptPath = await findPrompt(uri.fsPath)
     const apiKey = getConfigValue('api_key')
     const model = getConfigValue('model') || DEFAULT_MODEL
@@ -46,14 +46,23 @@ async function callGPT(text, uri){
     }
     const promptText = await vscode.workspace.openTextDocument(promptPath).then(doc => doc.getText())
 
-    return await callGPTAndOpenEditor(text, uri, promptText, apiKey, model)
+    return await callGPT(text, promptText, apiKey, model)
+}
+
+async function openDiff(textEditor, textEditorEdit){
+    // GPTの応答は*.gptという名前のファイルに書き込まれている
+    const uri = textEditor.document.uri
+    const newUri = uri.with({path: uri.path + '.gpt'})
+    // そのファイルをvscode.diffで表示する。現時点ではleft -> right方向だけdiffを適用できるので、gptExampleの結果をleftに表示する
+    await vscode.commands.executeCommand('vscode.diff', newUri, uri)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 function activate(context) {
     // テスト
     context.subscriptions.push(vscode.commands.registerCommand(
-        `${EXT_NAME}.helloWorld`, () => {
+        `${EXT_NAME}.helloWorld`,
+        () => {
             vscode.window.showInformationMessage('Hello, world!')
         }
     ))
@@ -70,7 +79,19 @@ function activate(context) {
         async (textEditor, textEditorEdit) => {
             const wholeText = textEditor.document.getText()
             const uri = textEditor.document.uri
-            return await callGPTAndOpenEditor(wholeText, uri)
+            const gptText = await callGPTAndOpenEditor(wholeText, uri)
+
+            // GPTの応答を*.gptという名前のファイルに書き込む
+            const newUri = uri.with({path: uri.path + '.gpt'})
+            const newFile = vscode.Uri.file(newUri.path)
+            await vscode.workspace.fs.writeFile(newFile, Buffer.from(gptText))
+
+            // そのファイルをvscode.diffで表示する。現時点ではleft -> right方向だけdiffを適用できるので、gptExampleの結果をleftに表示する
+            await vscode.commands.executeCommand('vscode.diff', newUri, uri)
+
+            // // そのファイルを別タブとして開く
+            // const doc = await vscode.workspace.openTextDocument(newUri)
+            // await vscode.window.showTextDocument(doc, vscode.ViewColumn.Beside)
         }
     ))
 
@@ -79,8 +100,25 @@ function activate(context) {
         `${EXT_NAME}.callGPTSelected`,
         async (textEditor, textEditorEdit) => {
             const selectedText = textEditor.document.getText(textEditor.selection)
+            if(selectedText.length === 0) {
+                vscode.window.showErrorMessage('No text selected')
+                return
+            }
             const uri = textEditor.document.uri
-            return await callGPT(selectedText, uri)
+            const gptText = await callGPTAndOpenEditor(selectedText, uri)
+
+            // 選択範囲をGPT応答に差し替えて、*.gptという名前のファイルに書き込む
+            const newUri = uri.with({path: uri.path + '.gpt'})
+            const newFile = vscode.Uri.file(newUri.path)
+            const gptWholeText = textEditor.document.getText().replace(selectedText, gptText)
+            await vscode.workspace.fs.writeFile(newFile, Buffer.from(gptWholeText))
+
+            // そのファイルをvscode.diffで表示する。現時点ではleft -> right方向だけdiffを適用できるので、gptExampleの結果をleftに表示する
+            await vscode.commands.executeCommand('vscode.diff', newUri, uri)
+
+            // // そのファイルを別タブとして開く
+            // const doc = await vscode.workspace.openTextDocument(newUri)
+            // await vscode.window.showTextDocument(doc, vscode.ViewColumn.Beside)
         }
     ))
 
@@ -88,6 +126,12 @@ function activate(context) {
     context.subscriptions.push(vscode.commands.registerTextEditorCommand(
         `${EXT_NAME}.openPrompt`,
         openPrompt
+    ))
+
+    // diffを表示する
+    context.subscriptions.push(vscode.commands.registerTextEditorCommand(
+        `${EXT_NAME}.openDiff`,
+        openDiff
     ))
 }
 
