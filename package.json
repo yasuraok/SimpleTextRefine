@@ -4,6 +4,7 @@
     "engines": {
         "vscode": "^1.84.1"
     },
+    "repository": "https://github.com/yasuraok/SimpleTextRefineWithGPT.git",
     "main": "./extension.js",
     "activationEvents": [
         "onStartupFinished"
@@ -16,7 +17,11 @@
             },
             {
                 "command": "simple-text-refine-with-gpt.callGPT",
-                "title": "Simple Text Refine w/ GPT: call GPT"
+                "title": "Simple Text Refine w/ GPT: call GPT by whole Text"
+            },
+            {
+                "command": "simple-text-refine-with-gpt.callGPTSelected",
+                "title": "Simple Text Refine w/ GPT: call GPT by selected Text"
             },
             {
                 "command": "simple-text-refine-with-gpt.openPrompt",
@@ -29,7 +34,10 @@
                 "extensions": [
                     ".prompt"
                 ],
-                "aliases": ["YAML", "yaml"],
+                "aliases": [
+                    "YAML",
+                    "yaml"
+                ],
                 "filenames": []
             }
         ],
@@ -41,11 +49,17 @@
                     "type": "string",
                     "default": "",
                     "description": "OpenAI API key"
+                },
+                "simple-text-refine-with-gpt.model": {
+                    "type": "string",
+                    "default": "gpt-3.5-turbo",
+                    "description": "OpenAI API Model"
                 }
             }
         }
     },
     "dependencies": {
+        "js-yaml": "^4.1.0",
         "openai": "^4.23.0"
     }
 }

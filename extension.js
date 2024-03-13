@@ -2,58 +2,69 @@ const vscode = require('vscode')
 
 const { Buffer } = require('buffer')
 const OpenAI = require('openai')
-
 const path = require('path')
+const jsyaml = require('js-yaml')
 
 const EXT_NAME = "simple-text-refine-with-gpt"
 
-const MODEL = "gpt-3.5-turbo-1106"
+const DEFAULT_MODEL = "gpt-3.5-turbo"
 
-// vscode APIの設定としてAPI_KEYを設定・取得する
-function getAPIKey() {
+// vscode APIの設定を取得する
+function getConfigValue(key) {
     const config = vscode.workspace.getConfiguration(EXT_NAME)
-    return config.get('api_key')
+    return config.get(key)
 }
 
 function helloWorld() {
     vscode.window.showInformationMessage('Hello, world!')
 }
 
-// workspace直下にある.propt.txtというファイルの中身を読み込む
-async function readPropTxt() {
-    if(vscode.workspace.workspaceFolders){
-        const uri = vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, '.prompt.txt');
-        return (await vscode.workspace.openTextDocument(uri)).getText();
-    }
-}
-
-async function makeSystem(prompt) {
+function makeSystemMsg(prompt) {
     return {
-        "role": "system",
-        "content": prompt,
+        role: "system",
+        content: prompt,
     }
 }
 
-function makeUserMessage(situation, text) {
-    const content = [
-        "## 背景事情",
-        situation,
-        "<!-- 背景事情ここまで -->",
-        "## 投稿下書き",
-        text,
-        "<!-- 投稿下書きここまで -->",
-    ].join('\n')
-
+function makeUserMsg(text) {
     return {
         role: 'user',
-        content,
+        content: text,
+    }
+}
+
+async function getSystemPrompt(filePath) {
+    const promptFile = await findPrompt(filePath)
+    if(! promptFile) {
+        vscode.window.showErrorMessage('.prompt not found')
+    }
+    const promptText = await vscode.workspace.openTextDocument(promptFile).then(doc => doc.getText())
+
+    // yaml配列になっているのでそれをパース
+    const promptYaml = jsyaml.load(promptText)
+
+    // 選択肢をVSCodeのQuickPickで表示する
+    const items = promptYaml.map(item => {
+        return {
+            label: item,
+            description: "",
+        }
+    })
+
+    const result = await vscode.window.showQuickPick(items);
+    if (result) {
+        vscode.window.showInformationMessage(`Got: ${result.label}`);
+        return result.label
+    } else {
+        vscode.window.showWarningMessage(`Failed to get`);
     }
 }
 
 // openAI GPT APIを使って文章を添削する
 // 使うエンドポイントはclient.chat.completions.create
-async function gptExample(wholeText, filePath) {
-    const apiKey = getAPIKey()
+async function gptExample(text, filePath) {
+    const apiKey = getConfigValue('api_key')
+    const model = getConfigValue('model') || DEFAULT_MODEL
     if (! apiKey) {
         // 設定画面を開くリンクを含むnotificationを表示する
         vscode.window.showErrorMessage('API Key is not set', 'Open Settings').then(selection => {
@@ -64,18 +75,13 @@ async function gptExample(wholeText, filePath) {
     }
     const openai = new OpenAI({apiKey})
 
-    const promptFile = await findPrompt(filePath)
-    if(! promptFile) {
-        vscode.window.showErrorMessage('.prompt not found')
-    }
-    const prompt = await vscode.workspace.openTextDocument(promptFile).then(doc => doc.getText())
+    const systemPrompt = await getSystemPrompt(filePath)
 
-    const messages = [await makeSystem(prompt), makeUserMessage("", wholeText)]
-    console.log({messages})
-    vscode.window.showInformationMessage(`calling GPT...: ${messages}`)
+    const messages = [makeSystemMsg(systemPrompt), makeUserMsg(text)]
+    vscode.window.showInformationMessage(`calling ${model}...: ${systemPrompt}`)
 
     const res = await openai.chat.completions.create({
-        model: MODEL,
+        model,
         messages,
     })
     console.log(res)
@@ -141,13 +147,12 @@ async function openPrompt(textEditor, textEditorEdit) {
 
 }
 
-async function callGPT(textEditor, textEditorEdit) {
-    const wholeText = textEditor.document.getText()
-
+// inputTextをGPTに添削させ、結果をVSCode上に表示する
+async function callGPTAndOpenEditor(inputText, textEditor) {
     // gptExampleを使って文章を添削する
-    const newText = await gptExample(wholeText, textEditor.document.uri.fsPath)
+    const newText = await gptExample(inputText, textEditor.document.uri.fsPath)
 
-    // ファイルファイルの複製を*.gptという名前で作り、newTextの内容を書き込む
+    // GPTの応答を*.gptという名前のファイルに書き込む
     const newUri = textEditor.document.uri.with({path: textEditor.document.uri.path + '.gpt'})
     const newFile = vscode.Uri.file(newUri.path)
     await vscode.workspace.fs.writeFile(newFile, Buffer.from(newText))
@@ -160,10 +165,23 @@ async function callGPT(textEditor, textEditorEdit) {
     // await vscode.window.showTextDocument(doc, vscode.ViewColumn.Beside)
 }
 
+// ファイル全体をGPTに添削させる
+async function callGPTWhole(textEditor, textEditorEdit) {
+    const wholeText = textEditor.document.getText()
+    return await callGPTAndOpenEditor(wholeText, textEditor)
+}
+
+// 選択範囲のテキストのみをGPTに添削させる
+async function callGPTSelected(textEditor, textEditorEdit) {
+    const selectedText = textEditor.document.getText(textEditor.selection)
+    return await callGPTAndOpenEditor(selectedText, textEditor)
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 function activate(context) {
     context.subscriptions.push(vscode.commands.registerCommand(`${EXT_NAME}.helloWorld`, helloWorld))
-    context.subscriptions.push(vscode.commands.registerTextEditorCommand(`${EXT_NAME}.callGPT`, callGPT))
+    context.subscriptions.push(vscode.commands.registerTextEditorCommand(`${EXT_NAME}.callGPT`, callGPTWhole))
+    context.subscriptions.push(vscode.commands.registerTextEditorCommand(`${EXT_NAME}.callGPTSelected`, callGPTSelected))
     context.subscriptions.push(vscode.commands.registerTextEditorCommand(`${EXT_NAME}.openPrompt`, openPrompt))
 }
 
