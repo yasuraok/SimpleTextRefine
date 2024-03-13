@@ -24,6 +24,10 @@
                 "title": "Simple Text Refine w/ GPT: call GPT by selected Text"
             },
             {
+                "command": "simple-text-refine-with-gpt.changeModel",
+                "title": "Simple Text Refine w/ GPT: change model"
+            },
+            {
                 "command": "simple-text-refine-with-gpt.openPrompt",
                 "title": "Simple Text Refine w/ GPT: open prompt file"
             }
