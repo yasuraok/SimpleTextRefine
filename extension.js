@@ -102,6 +102,19 @@ async function callGPTAndOpenDiff(textEditor, textEditorEdit) {
     vscode.window.setStatusBarMessage('finished.', 5000)
 }
 
+function makeNotifyable(func){
+    return function (textEditor, textEditorEdit){
+        try{
+            func(textEditor, textEditorEdit)
+        } catch (e) {
+            if(e.message.startsWith('Canceled')) {
+                // noop
+            }else{
+                vscode.window.showErrorMessage(e.message)
+            }
+        }
+    }
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 function activate(context) {
@@ -122,7 +135,7 @@ function activate(context) {
     // 選択範囲のテキストのみをGPTに添削させる
     context.subscriptions.push(vscode.commands.registerTextEditorCommand(
         `${EXT_NAME}.callGPTSelected`,
-        callGPTAndOpenDiff
+        makeNotifyable(callGPTAndOpenDiff)
     ))
 
     // プロンプトファイルを開く

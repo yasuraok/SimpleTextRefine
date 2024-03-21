@@ -19,12 +19,10 @@ function makeUserMsg(text) {
 }
 
 async function getSystemPrompt(promptText) {
-
     // yaml配列になっているのでそれをパース
     const promptYaml = jsyaml.load(promptText)
     if (!Array.isArray(promptYaml)) {
-        vscode.window.showErrorMessage(`.prompt is not an YAML format array`)
-        throw new Error()
+        throw new Error(`.prompt is not an YAML format array`)
     }
 
     // 選択肢をVSCodeのQuickPickで表示する
@@ -39,7 +37,7 @@ async function getSystemPrompt(promptText) {
     if (result) {
         return result.label
     } else {
-        vscode.window.showWarningMessage(`Failed to get`);
+        throw new Error('Canceled');
     }
 }
 
