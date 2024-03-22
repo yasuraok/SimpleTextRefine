@@ -2,7 +2,6 @@ const vscode = require('vscode')
 
 const { Buffer } = require('buffer')
 const OpenAI = require('openai')
-const jsyaml = require('js-yaml')
 
 function makeSystemMsg(prompt) {
     return {
@@ -18,34 +17,10 @@ function makeUserMsg(text) {
     }
 }
 
-async function getSystemPrompt(promptText) {
-    // yaml配列になっているのでそれをパース
-    const promptYaml = jsyaml.load(promptText)
-    if (!Array.isArray(promptYaml)) {
-        throw new Error(`.prompt is not an YAML format array`)
-    }
-
-    // 選択肢をVSCodeのQuickPickで表示する
-    const items = promptYaml.map(item => {
-        return {
-            label: item,
-            description: "",
-        }
-    })
-
-    const result = await vscode.window.showQuickPick(items);
-    if (result) {
-        return result.label
-    } else {
-        throw new Error('Canceled');
-    }
-}
-
 // openAI GPT APIを使って文章を添削する
-async function callGPTStream(text, promptText, apiKey, model, callback) {
+async function callGPTStream(text, systemPrompt, apiKey, model, callback) {
     const openai = new OpenAI({apiKey})
 
-    const systemPrompt = await getSystemPrompt(promptText)
     const messages = [makeSystemMsg(systemPrompt), makeUserMsg(text)]
 
     vscode.window.showInformationMessage(`calling ${model}...: ${systemPrompt}`)

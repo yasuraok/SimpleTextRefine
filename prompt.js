@@ -1,11 +1,12 @@
 const vscode = require('vscode')
 const path = require('path')
+const jsyaml = require('js-yaml')
 
 // プロンプトを記載したファイルを探して返す。優先順位は以下の通り
 // 1. {ファイル名}.prompt,
 // 2. (同じディレクトリの).prompt,
 // 3. (親フォルダを再帰的に探索).prompt (workspace直下まで)
-async function findPrompt(filePath) {
+async function findPromptPath(filePath) {
     // 1の条件
     const promptFile = vscode.Uri.file(`${filePath}.prompt`)
     if (await vscode.workspace.fs.stat(promptFile).then(() => true, () => false)) {
@@ -27,9 +28,32 @@ async function findPrompt(filePath) {
     return recursion(path.dirname(filePath))
 }
 
+async function selectPrompt(filePath) {
+    const promptPath = await findPromptPath(filePath)
+    if(! promptPath) {
+        throw new Error(`.prompt not found`)
+    }
+    const promptYaml = await vscode.workspace.openTextDocument(promptPath).then(doc => doc.getText())
+
+    // yaml配列になっているのでそれをパース
+    const prompts = jsyaml.load(promptYaml)
+    if (!Array.isArray(prompts)) {
+        throw new Error(`.prompt is not an YAML format array`)
+    }
+
+    // 選択肢をVSCodeのQuickPickで表示する
+    const items = prompts.map(label => ({label, description: ""}))
+    const result = await vscode.window.showQuickPick(items);
+    if (result) {
+        return result.label
+    } else {
+        throw new Error('Canceled');
+    }
+}
+
 async function openPrompt(textEditor, textEditorEdit) {
     console.log({textEditor, textEditorEdit})
-    const promptFile = await findPrompt(textEditor.document.uri.fsPath)
+    const promptFile = await findPromptPath(textEditor.document.uri.fsPath)
     if (! promptFile) {
         vscode.window.showErrorMessage('.prompt not found')
         return
@@ -57,4 +81,4 @@ async function openPrompt(textEditor, textEditorEdit) {
 
 }
 
-module.exports = { openPrompt, findPrompt }
+module.exports = { openPrompt, selectPrompt }

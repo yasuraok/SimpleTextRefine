@@ -49,20 +49,26 @@
             "type": "object",
             "title": "Simple Text Refine w/ GPT",
             "properties": {
-                "simple-text-refine-with-gpt.api_key": {
+                "simple-text-refine-with-gpt.model": {
+                    "type": "string",
+                    "default": "openai/gpt-3.5-turbo",
+                    "description": "OpenAI API Model"
+                },
+                "simple-text-refine-with-gpt.api_key_openai": {
                     "type": "string",
                     "default": "",
                     "description": "OpenAI API key"
                 },
-                "simple-text-refine-with-gpt.model": {
+                "simple-text-refine-with-gpt.api_key_anthropic": {
                     "type": "string",
-                    "default": "gpt-3.5-turbo",
-                    "description": "OpenAI API Model"
+                    "default": "",
+                    "description": "Anthropic API key"
                 }
             }
         }
     },
     "dependencies": {
+        "@anthropic-ai/sdk": "^0.19.0",
         "js-yaml": "^4.1.0",
         "openai": "^4.23.0"
     }
