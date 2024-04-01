@@ -1,5 +1,5 @@
 {
-    "name": "simple-text-refine-with-gpt",
+    "name": "simple-text-refine",
     "version": "0.0.1",
     "engines": {
         "vscode": "^1.84.1"
@@ -12,24 +12,24 @@
     "contributes": {
         "commands": [
             {
-                "command": "simple-text-refine-with-gpt.helloWorld",
-                "title": "Simple Text Refine w/ GPT: say hello world"
+                "command": "simple-text-refine.helloWorld",
+                "title": "Simple Text Refine: say hello world"
             },
             {
-                "command": "simple-text-refine-with-gpt.callGPTSelected",
-                "title": "Simple Text Refine w/ GPT: call GPT with selected Text"
+                "command": "simple-text-refine.callLLMSelected",
+                "title": "Simple Text Refine: call LLM with selected Text"
             },
             {
-                "command": "simple-text-refine-with-gpt.changeModel",
-                "title": "Simple Text Refine w/ GPT: change model"
+                "command": "simple-text-refine.changeModel",
+                "title": "Simple Text Refine: change model"
             },
             {
-                "command": "simple-text-refine-with-gpt.openPrompt",
-                "title": "Simple Text Refine w/ GPT: open prompt file"
+                "command": "simple-text-refine.openPrompt",
+                "title": "Simple Text Refine: open prompt file"
             },
             {
-                "command": "simple-text-refine-with-gpt.openDiff",
-                "title": "Simple Text Refine w/ GPT: open diff view"
+                "command": "simple-text-refine.openDiff",
+                "title": "Simple Text Refine: open diff view"
             }
         ],
         "languages": [
@@ -47,19 +47,19 @@
         ],
         "configuration": {
             "type": "object",
-            "title": "Simple Text Refine w/ GPT",
+            "title": "Simple Text Refine",
             "properties": {
-                "simple-text-refine-with-gpt.model": {
+                "simple-text-refine.model": {
                     "type": "string",
                     "default": "openai/gpt-3.5-turbo",
                     "description": "OpenAI API Model"
                 },
-                "simple-text-refine-with-gpt.api_key_openai": {
+                "simple-text-refine.api_key_openai": {
                     "type": "string",
                     "default": "",
                     "description": "OpenAI API key"
                 },
-                "simple-text-refine-with-gpt.api_key_anthropic": {
+                "simple-text-refine.api_key_anthropic": {
                     "type": "string",
                     "default": "",
                     "description": "Anthropic API key"

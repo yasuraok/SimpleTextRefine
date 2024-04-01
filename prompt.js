@@ -2,18 +2,27 @@ const vscode = require('vscode')
 const path = require('path')
 const jsyaml = require('js-yaml')
 
+const EXT_NAME = "simple-text-refine"
+
 // プロンプトを記載したファイルを探して返す。優先順位は以下の通り
-// 1. {ファイル名}.prompt,
-// 2. (同じディレクトリの).prompt,
-// 3. (親フォルダを再帰的に探索).prompt (workspace直下まで)
+// 1. workspace直下の.vscode/simple-text-refine/.prompt,
+// 2. {ファイル名}.prompt,
+// 3. (同じディレクトリの).prompt,
+// 4. (親フォルダを再帰的に探索).prompt (workspace直下まで)
 async function findPromptPath(filePath) {
     // 1の条件
-    const promptFile = vscode.Uri.file(`${filePath}.prompt`)
+    let promptFile = findWorkspacePrompt()
+    if (promptFile) {
+        return promptFile
+    }
+
+    // 2の条件
+    promptFile = vscode.Uri.file(`${filePath}.prompt`)
     if (await vscode.workspace.fs.stat(promptFile).then(() => true, () => false)) {
         return promptFile
     }
 
-    // 2, 3の条件
+    // 3, 4の条件
     async function recursion(dir){
         const promptFile = vscode.Uri.file(path.join(dir, '.prompt'))
         const promptFileExists = await vscode.workspace.fs.stat(promptFile).then(() => true, () => false)
@@ -26,6 +35,12 @@ async function findPromptPath(filePath) {
     }
 
     return recursion(path.dirname(filePath))
+}
+
+function findWorkspacePrompt(){
+    const wf = vscode.workspace.workspaceFolders
+    if(!wf) return null
+    return vscode.Uri.joinPath(wf[0].uri, '.vscode', EXT_NAME, '.prompt')
 }
 
 async function selectPrompt(filePath) {

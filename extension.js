@@ -3,7 +3,7 @@ const { selectPrompt, openPrompt } = require('./prompt')
 const { callGPTStream } = require('./callGPT')
 const { callClaudeStream } = require('./callClaude')
 
-const EXT_NAME = "simple-text-refine-with-gpt"
+const EXT_NAME = "simple-text-refine"
 
 const DEFAULT_MODEL = "openai/gpt-3.5-turbo"
 
@@ -52,22 +52,34 @@ async function setupParam(uri){
     return {promptText, apiKey, model, provider}
 }
 
+function makeCachePath(uri){
+    const wf = vscode.workspace.workspaceFolders
+    if(!wf) return null
+    const relPath = vscode.workspace.asRelativePath(uri)
+    const cachePath = vscode.Uri.joinPath(wf[0].uri, '.vscode', EXT_NAME, 'cache', relPath)
+    // mkdir
+    vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(cachePath, '..'))
+    return cachePath
+}
+
 async function openDiff(textEditor, textEditorEdit){
-    // GPTの応答は*.gptという名前のファイルに書き込まれている
-    const uri = textEditor.document.uri
-    const newUri = uri.with({path: uri.path + '.gpt'})
-    // そのファイルをvscode.diffで表示する。現時点ではleft -> right方向だけdiffを適用できるので、gptExampleの結果をleftに表示する
-    await vscode.commands.executeCommand('vscode.diff', newUri, uri)
+    const newUri = makeCachePath(textEditor.document.uri)
+    if(!newUri) return
+
+    // そのファイルをvscode.diffで表示する。現時点ではleft -> right方向だけdiffを適用できるので、LLM応答をleftに表示する
+    await vscode.commands.executeCommand('vscode.diff', newUri, textEditor.document.uri)
 }
 
 async function showGPTResult(gptText, uri, selectedText, wholeText, openDiff) {
     // 選択範囲をGPT応答に差し替えて、*.gptという名前のファイルに書き込む
-    const newUri = uri.with({path: uri.path + '.gpt'})
+    const newUri = makeCachePath(uri)
+    if(!newUri) return
+
     const newFile = vscode.Uri.file(newUri.path)
     const gptWholeText = wholeText.replace(selectedText, gptText)
     await vscode.workspace.fs.writeFile(newFile, Buffer.from(gptWholeText))
 
-    // そのファイルをvscode.diffで表示する。現時点ではleft -> right方向だけdiffを適用できるので、gptExampleの結果をleftに表示する
+    // そのファイルをvscode.diffで表示する。現時点ではleft -> right方向だけdiffを適用できるので、LLM応答をleftに表示する
     if (openDiff){
         await vscode.commands.executeCommand('vscode.diff', newUri, uri)
     }
@@ -147,7 +159,7 @@ function activate(context) {
 
     // 選択範囲のテキストのみをGPTに添削させる
     context.subscriptions.push(vscode.commands.registerTextEditorCommand(
-        `${EXT_NAME}.callGPTSelected`,
+        `${EXT_NAME}.callLLMSelected`,
         makeNotifyable(callGPTAndOpenDiff)
     ))
 
