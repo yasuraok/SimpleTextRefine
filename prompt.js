@@ -5,15 +5,17 @@ const jsyaml = require('js-yaml')
 const EXT_NAME = "simple-text-refine"
 
 const TEMPLATE = `
-- |
-  作成中の技術文書を添削し修正案を返してください。
-  文中で<<と>>で囲まれた部分はあなたへの指示であり、またXXXと書かれた部分はあなたに埋めて欲しい箇所です。
-  メモ書きのようになっている箇所に対しては、自然な文章になるように補正してください。
-  その際、箇条書きを地の文に変更したり、適当な見出しを追加するなどの形式変更もしてかまいません。
-- |
-  メールやチャットの投稿下書きを書いているユーザーから作成中の文章が与えられるので、添削し修正案を返してください。
-  書き始めで文章が不足していたり不連続と思われる場合はそれを補完し、ほぼ完成している場合は文体の改善などをメインに修正してください。
-`
+- label: 添削
+  description: |
+    作成中の技術文書を添削し修正案を返してください。
+    文中で<<と>>で囲まれた部分はあなたへの指示であり、またXXXと書かれた部分はあなたに埋めて欲しい箇所です。
+    メモ書きのようになっている箇所に対しては、自然な文章になるように補正してください。
+    その際、箇条書きを地の文に変更したり、適当な見出しを追加するなどの形式変更もしてかまいません。
+- label: メール
+  description: |
+    メールやチャットの投稿下書きを書いているユーザーから作成中の文章が与えられるので、添削し修正案を返してください。
+    書き始めで文章が不足していたり不連続と思われる場合はそれを補完し、ほぼ完成している場合は文体の改善などをメインに修正してください。
+`.trimStart()
 
 async function exists(uri){
     return await vscode.workspace.fs.stat(uri).then(() => true, () => false)
@@ -79,10 +81,13 @@ async function selectPrompt(srcPath) {
     }
 
     // 選択肢をVSCodeのQuickPickで表示する
-    const items = prompts.map(label => ({label, description: ""}))
+    const items = prompts.map(p => {
+        if (p.label && p.description) return p
+        else return {label: "", description: p}
+    })
     const result = await vscode.window.showQuickPick(items);
     if (result) {
-        return result.label
+        return result.description
     } else {
         throw new Error('Canceled');
     }
