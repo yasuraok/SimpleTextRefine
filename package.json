@@ -12,10 +12,6 @@
     "contributes": {
         "commands": [
             {
-                "command": "simple-text-refine.helloWorld",
-                "title": "Simple Text Refine: say hello world"
-            },
-            {
                 "command": "simple-text-refine.callLLMSelected",
                 "title": "Simple Text Refine: call LLM with selected Text"
             },

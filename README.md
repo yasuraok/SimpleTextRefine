@@ -16,4 +16,3 @@
 
 ## ビルド → 配布
 - `npx vsce package`
-
