@@ -82,8 +82,15 @@ async function selectPrompt(srcPath) {
 
     // 選択肢をVSCodeのQuickPickで表示する
     const items = prompts.map(p => {
-        if (p.label && p.description) return p
-        else return {label: "", description: p}
+        // pは文字列か{label, description}のオブジェクト
+        if (typeof p === 'string') {
+            return {label: "", description: p}
+        } else {
+            let {label, description} = p
+            if (typeof label !== 'string') label = ""
+            if (typeof description !== 'string') description = ""
+            return {label, description}
+        }
     })
     const result = await vscode.window.showQuickPick(items);
     if (result) {
