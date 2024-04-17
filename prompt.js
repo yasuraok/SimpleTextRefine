@@ -66,7 +66,7 @@ async function findPromptPath(filePath) {
     return recursion(path.dirname(filePath))
 }
 
-// promptファイルの中からQuickPickで使いたいプロンプトを選択するUIを出す
+// Display a UI to select the desired prompt from within the .prompt file for use with QuickPick
 async function selectPrompt(srcPath) {
     const promptPath = await findPromptPath(srcPath)
     if(! promptPath) {
@@ -74,22 +74,22 @@ async function selectPrompt(srcPath) {
     }
     const promptYaml = await vscode.workspace.openTextDocument(promptPath).then(doc => doc.getText())
 
-    // yaml配列になっているのでそれをパース
+    // Parse and check if it's array
     const prompts = jsyaml.load(promptYaml)
     if (!Array.isArray(prompts)) {
         throw new Error(`.prompt is not an YAML format array`)
     }
 
-    // 選択肢をVSCodeのQuickPickで表示する
+    // Display the choices at VSCode QuickPick
     const items = prompts.map(p => {
-        // pは文字列か{label, description}のオブジェクト
+        // p is either a string or an object with {label, description}
         if (typeof p === 'string') {
             return {label: "", description: p}
         } else {
-            let {label, description} = p
-            if (typeof label !== 'string') label = ""
-            if (typeof description !== 'string') description = ""
-            return {label, description}
+            // force convert string
+            if (typeof p.label !== 'string') p.label = p.label?.toString() || ""
+            if (typeof p.description !== 'string') p.description = p.description?.toString() || ""
+            return p
         }
     })
     const result = await vscode.window.showQuickPick(items);
