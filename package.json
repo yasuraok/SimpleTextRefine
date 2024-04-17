@@ -4,7 +4,7 @@
     "engines": {
         "vscode": "^1.84.1"
     },
-    "repository": "https://github.com/yasuraok/SimpleTextRefineWithGPT.git",
+    "repository": "https://github.com/yasuraok/SimpleTextRefine.git",
     "main": "./extension.js",
     "activationEvents": [
         "onStartupFinished"
