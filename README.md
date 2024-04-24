@@ -2,7 +2,7 @@
 
 OpenAI GPT と Anthropic Claude 3 に対応している。
 
-![screenshot](screenshot.png)
+![screenshot](assets/screenshot.png)
 
 # 使い方
 ## 基本的な使い方

@@ -6,7 +6,7 @@
     },
     "extensionKind": ["workspace"],
     "repository": "https://github.com/yasuraok/SimpleTextRefine.git",
-    "main": "./extension.js",
+    "main": "./prg/extension.js",
     "activationEvents": [
         "onStartupFinished"
     ],
