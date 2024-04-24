@@ -1,6 +1,6 @@
 {
     "name": "simple-text-refine",
-    "version": "0.0.2",
+    "version": "0.0.3",
     "engines": {
         "vscode": "^1.84.1"
     },
@@ -10,6 +10,7 @@
     "activationEvents": [
         "onStartupFinished"
     ],
+    "publisher": "yasuraok",
     "contributes": {
         "commands": [
             {
