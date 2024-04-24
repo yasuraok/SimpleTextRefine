@@ -6,18 +6,19 @@ OpenAI GPT と Anthropic Claude 3 に対応している。
 
 # 使い方
 ## 基本的な使い方
-1. (初回のみ) 各サービスの API Key を設定する。設定画面を開き (Ctrl + ,)、simple-text-refine で絞り込むと、以下の2つの設定項目があるので、必要に応じて入力する。
+1. (初回のみ) 各サービスの API Key を設定する。設定画面を開き (Ctrl + ,)、simple-text-refine で絞り込むと、以下の2つの設定項目があるので、必要に応じて入力する。(注意: API Keyを設定に記録するのは最善でない。将来的に改善予定)
    - simple-text-refine.api_key_openai
    - simple-text-refine.api_key_anthropic
 2. workspace 以下の適当なフォルダの適当なファイルを開き、適当な文章を記入する。
 3. prompt を作成する。コマンドパレット (Ctrl + Shift + P) で「prompt」と入力すると「Simple Text Refine: open prompt file」という項目が現れるので、選択する。
    初回はファイルが無い旨のエラーが出るが、その通知中の Create ボタンを押すことで雛型を作成できる。prompt ファイルは .vscode 以下に保存される。
-4. LLM を呼び出す。
+4. LLM のモデルを選択する。コマンドパレットを再度開き「change model」と入力すると、使用するモデルが選択できる。両社の主要モデルが選択可能だが、当然 API Key が必要である。
+5. LLM を呼び出す。
    1. 開いているファイルのうち、LLM に渡したいテキスト部分をエディタ内で選択状態にする。
-   2. コマンドパレットを再度開き「call LLM」と入力すると「Simple Text Refine: call LLM with selected text」という項目が現れるので、選択する。
+   2. コマンドパレットを開き「call LLM」と入力すると「Simple Text Refine: call LLM with selected text」という項目が現れるので、選択する。
    3. 続いて、3.で作成したプロンプトを選択するダイアログが表示されるので、目的のプロンプトを選択する。
    4. LLM の呼び出しが開始する。応答がリアルタイムにテンポラリファイルに書き出され、そのファイルとの diff 表示画面が開く。
-5. LLM 応答を見て、必要に応じて元ファイルを編集する (diff 画面上の左が LLM 応答で、セパレータ部分にある→を使うことで元ファイルに LLM 応答を流し込むことができる)
+6. LLM 応答を見て、必要に応じて元ファイルを編集する (diff 画面上の左が LLM 応答で、セパレータ部分にある→を使うことで元ファイルに LLM 応答を流し込むことができる)
 
 プロンプトは以下のようなyaml形式で記載すること。
 
