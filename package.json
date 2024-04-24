@@ -4,6 +4,7 @@
     "engines": {
         "vscode": "^1.84.1"
     },
+    "extensionKind": ["workspace"],
     "repository": "https://github.com/yasuraok/SimpleTextRefine.git",
     "main": "./extension.js",
     "activationEvents": [
