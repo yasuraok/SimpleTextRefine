@@ -157,22 +157,22 @@ function activate(context) {
         changeModel
     ))
 
+    // プロンプトファイルを開く
+    context.subscriptions.push(vscode.commands.registerCommand(
+        `${EXT_NAME}.openPrompt`,
+        makeNotifyable(openPrompt)
+    ))
+
     // 選択範囲のテキストのみをGPTに添削させる
     context.subscriptions.push(vscode.commands.registerTextEditorCommand(
         `${EXT_NAME}.callLLMSelected`,
         makeNotifyable(callGPTAndOpenDiff)
     ))
 
-    // プロンプトファイルを開く
-    context.subscriptions.push(vscode.commands.registerTextEditorCommand(
-        `${EXT_NAME}.openPrompt`,
-        openPrompt
-    ))
-
     // diffを表示する
     context.subscriptions.push(vscode.commands.registerTextEditorCommand(
         `${EXT_NAME}.openDiff`,
-        openDiff
+        makeNotifyable(openDiff)
     ))
 }
 
