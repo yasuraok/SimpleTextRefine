@@ -1,5 +1,5 @@
 const vscode = require('vscode')
-const { selectPrompt, openPrompt } = require('./prompt')
+const { selectPrompt, getDefaultPromptPath, openPromptFile } = require('./prompt')
 const { callGPTStream } = require('./callGPT')
 const { callClaudeStream } = require('./callClaude')
 
@@ -46,8 +46,9 @@ async function setupParam(uri){
         })
     }
 
-    // promptの取得
-    const promptText = await selectPrompt(uri.fsPath)
+    // promptFileの取得 → promptの選択
+    const promptPath = getConfigValue('prompt_path') ?? await getDefaultPromptPath()
+    const promptText = await selectPrompt(promptPath)
 
     return {promptText, apiKey, model, provider}
 }
@@ -160,7 +161,7 @@ function activate(context) {
     // プロンプトファイルを開く
     context.subscriptions.push(vscode.commands.registerCommand(
         `${EXT_NAME}.openPrompt`,
-        makeNotifyable(openPrompt)
+        makeNotifyable(openPromptFile)
     ))
 
     // 選択範囲のテキストのみをGPTに添削させる

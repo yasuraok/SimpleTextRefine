@@ -22,7 +22,7 @@ async function exists(uri){
 }
 
 // プロンプトを記載したファイルを探して返す。具体的にはworkspace直下の.vscode/simple-text-refine/.prompt,
-async function findPromptPath() {
+async function getDefaultPromptPath() {
     const wf = vscode.workspace.workspaceFolders
     if(wf){
         const wfPromptPath = vscode.Uri.joinPath(wf[0].uri, '.vscode', EXT_NAME, '.prompt')
@@ -40,15 +40,11 @@ async function findPromptPath() {
         }
     }
 
-    await vscode.window.showErrorMessage('workspace is not selected')
+    throw new Error('Failed to open prompt file: workspace is not selected.')
 }
 
 // Display a UI to select the desired prompt from within the .prompt file for use with QuickPick
-async function selectPrompt(srcPath) {
-    const promptPath = await findPromptPath(srcPath)
-    if(! promptPath) {
-        throw new Error(`.prompt not found`)
-    }
+async function selectPrompt(promptPath) {
     const promptYaml = await vscode.workspace.openTextDocument(promptPath).then(doc => doc.getText())
 
     // Parse and check if it's array
@@ -99,8 +95,8 @@ async function openFileAbove(file){
 }
 
 // promptファイルをエディタ画面で開く
-async function openPrompt() {
-    const promptFile = await findPromptPath()
+async function openPromptFile() {
+    const promptFile = await getDefaultPromptPath()
     if (! promptFile) {
         vscode.window.showErrorMessage('.prompt not found')
         return
@@ -110,4 +106,4 @@ async function openPrompt() {
     }
 }
 
-module.exports = { openPrompt, selectPrompt }
+module.exports = { openPromptFile, selectPrompt, getDefaultPromptPath }
