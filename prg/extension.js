@@ -1,5 +1,5 @@
 const vscode = require('vscode')
-const { selectPrompt, getDefaultPromptPath, openPromptFile } = require('./prompt')
+const { selectPrompt, openPromptFile } = require('./prompt')
 const { callGPTStream } = require('./callGPT')
 const { callClaudeStream } = require('./callClaude')
 
@@ -17,8 +17,11 @@ const MODELS = [
 
 // vscode APIの設定を取得する
 function getConfigValue(key) {
+    return vscode.workspace.getConfiguration(EXT_NAME).get(key)
+}
+function getConfig(keys){
     const config = vscode.workspace.getConfiguration(EXT_NAME)
-    return config.get(key)
+    return Object.fromEntries(keys.map(key => [key, config.get(key)]))
 }
 
 async function changeModel() {
@@ -47,8 +50,7 @@ async function setupParam(uri){
     }
 
     // promptFileの取得 → promptの選択
-    const promptPath = getConfigValue('prompt_path') ?? await getDefaultPromptPath()
-    const promptText = await selectPrompt(promptPath)
+    const promptText = await selectPrompt(getConfig(['prompt_path']))
 
     return {promptText, apiKey, model, provider}
 }
@@ -128,6 +130,10 @@ async function callGPTAndOpenDiff(textEditor, textEditorEdit) {
     vscode.window.setStatusBarMessage('finished.', 5000)
 }
 
+async function openPrompt(textEditor, textEditorEdit){
+    await openPromptFile(getConfig(['prompt_path']))
+}
+
 function makeNotifyable(func){
     return async function (textEditor, textEditorEdit){
         try{
@@ -161,7 +167,7 @@ function activate(context) {
     // プロンプトファイルを開く
     context.subscriptions.push(vscode.commands.registerCommand(
         `${EXT_NAME}.openPrompt`,
-        makeNotifyable(openPromptFile)
+        makeNotifyable(openPrompt)
     ))
 
     // 選択範囲のテキストのみをGPTに添削させる
