@@ -1,4 +1,4 @@
-# クイックスタート(ver0.0.7)
+# クイックスタート
 可能な限り設定を除外してすぐに使えるようにしたもの。  
 初期値ですぐ使えるOpenAI/gpt-3.5-turboを使用する。
 
@@ -12,7 +12,7 @@
 ## 2. prompt を作成する
 コマンドパレット (Ctrl + Shift + P) で「prompt」と入力すると「Simple Text Refine: open prompt file」という項目が現れるので、選択する。  
 初回はファイルが無い旨のエラーが出るが、その通知中の Create ボタンを押すことで雛型を作成できる。  
-prompt ファイルは `(当該ワークスペース)/.vscode/.prompt`に保存される。（ver0.0.7 設定により変更できる）
+prompt ファイルは `(当該ワークスペース)/.vscode/.prompt`に保存される。
 
 <img width="1233" alt="image" src="https://github.com/shimajima-eiji/SimpleTextRefine/assets/15845907/d857a3da-b25c-480f-8747-82399d1085ec">
 
