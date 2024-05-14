@@ -8,8 +8,9 @@ const EXT_NAME = "simple-text-refine"
 const DEFAULT_MODEL = "openai/gpt-3.5-turbo"
 
 const MODELS = [
+    "openai/gpt-4o",
+    "openai/gpt-4-turbo",
     DEFAULT_MODEL,
-    "openai/gpt-4-turbo-preview",
     "anthropic/claude-3-opus-20240229",
     "anthropic/claude-3-sonnet-20240229",
     "anthropic/claude-3-haiku-20240307",
