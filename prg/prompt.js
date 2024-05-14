@@ -21,34 +21,40 @@ async function exists(uri){
     return await vscode.workspace.fs.stat(uri).then(() => true, () => false)
 }
 
-// プロンプトを記載したファイルを探して返す。具体的にはworkspace直下の.vscode/simple-text-refine/.prompt,
-async function findPromptPath() {
+// デフォルトプロンプトのパスを返す。具体的にはworkspace直下の.vscode/simple-text-refine/.prompt,
+function getDefaultPromptPath() {
     const wf = vscode.workspace.workspaceFolders
-    if(wf){
-        const wfPromptPath = vscode.Uri.joinPath(wf[0].uri, '.vscode', EXT_NAME, '.prompt')
-        if (await exists(wfPromptPath)) {
-            return wfPromptPath
-        } else {
-            // promptファイルが無いことを通知しつつ、作成を促す
-            const selection = await vscode.window.showErrorMessage('.prompt not found', 'Create')
-            if (selection === 'Create') {
-                await vscode.workspace.fs.writeFile(wfPromptPath, Buffer.from(TEMPLATE))
-                await openFileAbove(wfPromptPath)
-                // promptを開いたのでその後の処理は中止
-                throw new Error('Canceled (no notification)')
-            }
-        }
+    if (!wf || !wf.length) return null
+    return vscode.Uri.joinPath(wf[0].uri, '.vscode', EXT_NAME, '.prompt')
+}
+
+// プロンプトのパスを取得する。指定されたパスが存在しない場合は作成を促す
+async function getPromptPath(configPath) {
+    // configで指定があればそれを、そうでなければdefaultを取得
+    const requestedPath = configPath ? vscode.Uri.file(configPath) : getDefaultPromptPath()
+
+    if (! requestedPath) {
+        // promptファイルのpath自体が決定不能
+        throw new Error('Failed to open prompt file: workspace is not selected.')
     }
 
-    await vscode.window.showErrorMessage('workspace is not selected')
+    if (! await exists(requestedPath)) {
+        // promptファイルが無い: 通知しつつ作成を促す
+        const selection = await vscode.window.showErrorMessage(`Prompt not found [${requestedPath}]`, 'Create')
+        if (selection === 'Create') {
+            await vscode.workspace.fs.writeFile(requestedPath, Buffer.from(TEMPLATE))
+            await openFileAbove(requestedPath)
+        }
+        // promptを開いたかどうかに関わらずその後の処理は中止 (通知は済んでるのでnotificationなし)
+        throw new Error('Canceled')
+    }
+
+    return requestedPath
 }
 
 // Display a UI to select the desired prompt from within the .prompt file for use with QuickPick
-async function selectPrompt(srcPath) {
-    const promptPath = await findPromptPath(srcPath)
-    if(! promptPath) {
-        throw new Error(`.prompt not found`)
-    }
+async function selectPrompt(config) {
+    const promptPath = await getPromptPath(config.prompt_path)
     const promptYaml = await vscode.workspace.openTextDocument(promptPath).then(doc => doc.getText())
 
     // Parse and check if it's array
@@ -99,15 +105,9 @@ async function openFileAbove(file){
 }
 
 // promptファイルをエディタ画面で開く
-async function openPrompt() {
-    const promptFile = await findPromptPath()
-    if (! promptFile) {
-        vscode.window.showErrorMessage('.prompt not found')
-        return
-    }
-    if (promptFile) {
-        await openFileAbove(promptFile)
-    }
+async function openPromptFile(config) {
+    const promptPath = await getPromptPath(config.prompt_path)
+    await openFileAbove(promptPath)
 }
 
-module.exports = { openPrompt, selectPrompt }
+module.exports = { openPromptFile, selectPrompt }
