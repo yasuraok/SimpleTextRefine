@@ -1,5 +1,5 @@
 const vscode = require('vscode')
-const { selectPrompt, openPrompt } = require('./prompt')
+const { selectPrompt, openPromptFile } = require('./prompt')
 const { callGPTStream } = require('./callGPT')
 const { callClaudeStream } = require('./callClaude')
 
@@ -8,8 +8,9 @@ const EXT_NAME = "simple-text-refine"
 const DEFAULT_MODEL = "openai/gpt-3.5-turbo"
 
 const MODELS = [
+    "openai/gpt-4o",
+    "openai/gpt-4-turbo",
     DEFAULT_MODEL,
-    "openai/gpt-4-turbo-preview",
     "anthropic/claude-3-opus-20240229",
     "anthropic/claude-3-sonnet-20240229",
     "anthropic/claude-3-haiku-20240307",
@@ -17,8 +18,11 @@ const MODELS = [
 
 // vscode APIの設定を取得する
 function getConfigValue(key) {
+    return vscode.workspace.getConfiguration(EXT_NAME).get(key)
+}
+function getConfig(keys){
     const config = vscode.workspace.getConfiguration(EXT_NAME)
-    return config.get(key)
+    return Object.fromEntries(keys.map(key => [key, config.get(key)]))
 }
 
 async function changeModel() {
@@ -46,8 +50,8 @@ async function setupParam(uri){
         })
     }
 
-    // promptの取得
-    const promptText = await selectPrompt(uri.fsPath)
+    // promptFileの取得 → promptの選択
+    const promptText = await selectPrompt(getConfig(['prompt_path']))
 
     return {promptText, apiKey, model, provider}
 }
@@ -125,6 +129,10 @@ async function callGPTAndOpenDiff(textEditor, textEditorEdit) {
     showGPTResult(gptText, uri, selectedText, wholeText, !diffShown)
 
     vscode.window.setStatusBarMessage('finished.', 5000)
+}
+
+async function openPrompt(textEditor, textEditorEdit){
+    await openPromptFile(getConfig(['prompt_path']))
 }
 
 function makeNotifyable(func){

@@ -1,6 +1,6 @@
 {
     "name": "simple-text-refine",
-    "version": "0.0.6",
+    "version": "0.0.7",
     "engines": {
         "vscode": "^1.84.1"
     },
@@ -61,6 +61,11 @@
                     "type": "string",
                     "default": "",
                     "description": "Anthropic API key"
+                },
+                "simple-text-refine.prompt_path": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Custom prompt file path. Default is {workspace}/.vscode/simple-text-refine/.prompt"
                 }
             }
         }
