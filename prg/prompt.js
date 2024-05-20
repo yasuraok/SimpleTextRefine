@@ -1,6 +1,8 @@
 const vscode = require('vscode')
-const path = require('path')
 const jsyaml = require('js-yaml')
+
+const { exists } = require('./common')
+const { validate, PromptOption } = require('./type')
 
 const EXT_NAME = "simple-text-refine"
 
@@ -16,10 +18,6 @@ const TEMPLATE = `
     メールやチャットの投稿下書きを書いているユーザーから作成中の文章が与えられるので、添削し修正案を返してください。
     書き始めで文章が不足していたり不連続と思われる場合はそれを補完し、ほぼ完成している場合は文体の改善などをメインに修正してください。
 `.trimStart()
-
-async function exists(uri){
-    return await vscode.workspace.fs.stat(uri).then(() => true, () => false)
-}
 
 // デフォルトプロンプトのパスを返す。具体的にはworkspace直下の.vscode/simple-text-refine/.prompt,
 function getDefaultPromptPath() {
@@ -84,7 +82,6 @@ async function selectPromptObj(promptYaml) {
  * @param {string} settingPromptPath
  * @param {string} text
  * @param {string} apiKey
- * @returns
  */
 async function getPrompt(settingPromptPath, apiKey, text) {
     // Find and open prompt file
@@ -92,8 +89,9 @@ async function getPrompt(settingPromptPath, apiKey, text) {
     const promptYaml = await vscode.workspace.openTextDocument(promptPath).then(doc => doc.getText())
     // Display a UI to select the desired prompt from within the .prompt file for use with QuickPick
     const promptObj = await selectPromptObj(promptYaml)
-    // Embed references
-    return await promptObj.description
+
+    const option = validate(PromptOption, promptObj)
+    return {text:promptObj.description, option}
 }
 
 async function openFileAbove(file){

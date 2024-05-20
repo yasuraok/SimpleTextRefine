@@ -1,4 +1,5 @@
 const vscode = require('vscode')
+const { exists, modifiedDate } = require('./common')
 const { getPrompt, openPromptFile } = require('./prompt')
 const { callGPTStream } = require('./callGPT')
 const { callClaudeStream } = require('./callClaude')
@@ -61,7 +62,9 @@ async function setupParam(uri){
 
 function makeCachePath(uri){
     const wf = vscode.workspace.workspaceFolders
-    if(!wf) return null
+    if(!wf){
+        throw new Error('Error: workspace is not selected.')
+    }
     const relPath = vscode.workspace.asRelativePath(uri)
     const cachePath = vscode.Uri.joinPath(wf[0].uri, '.vscode', EXT_NAME, 'cache', relPath)
     // mkdir
@@ -77,27 +80,59 @@ async function openDiff(textEditor, textEditorEdit){
     await vscode.commands.executeCommand('vscode.diff', newUri, textEditor.document.uri)
 }
 
-async function showGPTResult(gptText, uri, selectedText, wholeText, openDiff) {
-    // 選択範囲をGPT応答に差し替えて、*.gptという名前のファイルに書き込む
-    const newUri = makeCachePath(uri)
-    if(!newUri) return
+/**
+ * @param {vscode.Uri} uri
+ * @param {boolean} backup
+ */
+async function prepareResultFile(uri, backup) {
+    const llmUri = makeCachePath(uri)
 
-    const newFile = vscode.Uri.file(newUri.path)
-    const gptWholeText = wholeText.replace(selectedText, gptText)
-    await vscode.workspace.fs.writeFile(newFile, Buffer.from(gptWholeText))
-
-    // そのファイルをvscode.diffで表示する。現時点ではleft -> right方向だけdiffを適用できるので、LLM応答をleftに表示する
-    if (openDiff){
-        await vscode.commands.executeCommand('vscode.diff', newUri, uri)
+    if (backup && await exists(llmUri)) {
+        // {llmUrl}.{modified time} にバックアップを取る
+        const dateStr = await modifiedDate(llmUri)
+        const backupUri = vscode.Uri.file(`${llmUri.path}.${dateStr}`)
+        await vscode.workspace.fs.rename(llmUri, backupUri, { overwrite: true })
     }
+
+    return llmUri
 }
 
+// LLM書き込み先のファイルをEditorで開きつつ、LLM応答を書き込む関数を返す
+async function prepareResultWriter(llmUri, uri, openAsDiff, selectedText, wholeText) {
+    const llmFile = vscode.Uri.file(llmUri.path)
+
+    if (openAsDiff) {
+        // そのファイルをvscode.diffで表示する。現時点ではleft -> right方向だけdiffを適用できるので、LLM応答をleftに表示する
+        // diffとして見えるように、元ファイルの選択範囲をLLM応答で置き換える形をとる
+        const writer = async (llmText) => {
+            const gptWholeText = wholeText.replace(selectedText, llmText)
+            await vscode.workspace.fs.writeFile(llmFile, Buffer.from(gptWholeText))
+        }
+        await writer('')
+        await vscode.commands.executeCommand('vscode.diff', llmUri, uri)
+        return writer
+
+    } else {
+        // そのファイルを通常のエディタ画面で開く
+        const writer = async (llmText) => {
+            await vscode.workspace.fs.writeFile(llmFile, Buffer.from(llmText))
+        }
+        await writer('')
+        await vscode.commands.executeCommand('vscode.open', llmUri)
+        return writer
+    }
+}
 
 const FUNC_TABLE = {
     "openai": callGPTStream,
     "anthropic": callClaudeStream,
 }
 
+/**
+ * @param {vscode.TextEditor} textEditor
+ * @param {vscode.TextEditorEdit} textEditorEdit
+ * @returns
+ */
 async function callGPTAndOpenDiff(textEditor, textEditorEdit) {
     const wholeText = textEditor.document.getText()
     const selectedText = textEditor.document.getText(textEditor.selection)
@@ -108,16 +143,19 @@ async function callGPTAndOpenDiff(textEditor, textEditorEdit) {
     const uri = textEditor.document.uri
     const {settingPromptPath, apiKey, model, provider} = await setupParam(uri)
 
-    const promptText = await getPrompt(settingPromptPath, apiKey, selectedText)
+    const prompt = await getPrompt(settingPromptPath, apiKey, selectedText)
 
     const callLLMStream = FUNC_TABLE[provider]
+
+    // LLM応答を格納するファイルを用意し表示する。diff表示か否かによって書き込む内容が変わるので、関数を作っておく
+    const llmUri = await prepareResultFile(uri, prompt.option.output.backup)
+    const resultWriter = await prepareResultWriter(llmUri, uri, prompt.option.view.type === 'diff', selectedText, wholeText)
 
     // callbackでgptの結果を受け取るが、頻度が高すぎるので
     // 5秒おきにcontentの内容をエディタに反映する周期処理を横で走らせる
     let lastUpdated = null
-    let diffShown = false
     let gptText = ""
-    await callLLMStream(selectedText, promptText, apiKey, model, (delta) => {
+    await callLLMStream(selectedText, prompt.text, apiKey, model, (delta) => {
         gptText += delta
 
         // ステータスバーには直近50文字だけ表示する
@@ -126,12 +164,11 @@ async function callGPTAndOpenDiff(textEditor, textEditorEdit) {
 
         // 2秒経過した場合に限りエディタ内も更新
         if (lastUpdated === null || Date.now() - lastUpdated > 2000) {
-            showGPTResult(gptText + "\n", uri, selectedText, wholeText, !diffShown)
-            diffShown = true
+            resultWriter(gptText + "\n")
             lastUpdated = Date.now()
         }
     })
-    showGPTResult(gptText, uri, selectedText, wholeText, !diffShown)
+    resultWriter(gptText + "\n")
 
     vscode.window.setStatusBarMessage('finished.', 5000)
 }
