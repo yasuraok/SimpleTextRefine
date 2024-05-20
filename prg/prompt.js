@@ -29,7 +29,7 @@ function getDefaultPromptPath() {
 }
 
 // プロンプトのパスを取得する。指定されたパスが存在しない場合は作成を促す
-async function getPromptPath(configPath) {
+async function resolvePromptPath(configPath) {
     // configで指定があればそれを、そうでなければdefaultを取得
     const requestedPath = configPath ? vscode.Uri.file(configPath) : getDefaultPromptPath()
 
@@ -52,11 +52,7 @@ async function getPromptPath(configPath) {
     return requestedPath
 }
 
-// Display a UI to select the desired prompt from within the .prompt file for use with QuickPick
-async function selectPrompt(config) {
-    const promptPath = await getPromptPath(config.prompt_path)
-    const promptYaml = await vscode.workspace.openTextDocument(promptPath).then(doc => doc.getText())
-
+async function selectPromptObj(promptYaml) {
     // Parse and check if it's array
     const prompts = jsyaml.load(promptYaml)
     if (!Array.isArray(prompts)) {
@@ -77,10 +73,27 @@ async function selectPrompt(config) {
     })
     const result = await vscode.window.showQuickPick(items);
     if (result) {
-        return result.description
+        return result
     } else {
         throw new Error('Canceled');
     }
+}
+
+
+/**
+ * @param {string} settingPromptPath
+ * @param {string} text
+ * @param {string} apiKey
+ * @returns
+ */
+async function getPrompt(settingPromptPath, apiKey, text) {
+    // Find and open prompt file
+    const promptPath = await resolvePromptPath(settingPromptPath)
+    const promptYaml = await vscode.workspace.openTextDocument(promptPath).then(doc => doc.getText())
+    // Display a UI to select the desired prompt from within the .prompt file for use with QuickPick
+    const promptObj = await selectPromptObj(promptYaml)
+    // Embed references
+    return await promptObj.description
 }
 
 async function openFileAbove(file){
@@ -106,8 +119,8 @@ async function openFileAbove(file){
 
 // promptファイルをエディタ画面で開く
 async function openPromptFile(config) {
-    const promptPath = await getPromptPath(config.prompt_path)
+    const promptPath = await resolvePromptPath(config.prompt_path)
     await openFileAbove(promptPath)
 }
 
-module.exports = { openPromptFile, selectPrompt }
+module.exports = { openPromptFile, getPrompt }

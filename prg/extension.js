@@ -1,5 +1,5 @@
 const vscode = require('vscode')
-const { selectPrompt, openPromptFile } = require('./prompt')
+const { getPrompt, openPromptFile } = require('./prompt')
 const { callGPTStream } = require('./callGPT')
 const { callClaudeStream } = require('./callClaude')
 
@@ -16,7 +16,10 @@ const MODELS = [
     "anthropic/claude-3-haiku-20240307",
 ].map(label => ({label, description: ""}))
 
-// vscode APIの設定を取得する
+/**
+ * vscode APIの設定を取得する
+ * @param {string} key
+ */
 function getConfigValue(key) {
     return vscode.workspace.getConfiguration(EXT_NAME).get(key)
 }
@@ -50,10 +53,10 @@ async function setupParam(uri){
         })
     }
 
-    // promptFileの取得 → promptの選択
-    const promptText = await selectPrompt(getConfig(['prompt_path']))
+    /** @type string */ // prompt_pathの取得
+    const settingPromptPath = getConfigValue('prompt_path')
 
-    return {promptText, apiKey, model, provider}
+    return {settingPromptPath, apiKey, model, provider}
 }
 
 function makeCachePath(uri){
@@ -103,7 +106,9 @@ async function callGPTAndOpenDiff(textEditor, textEditorEdit) {
         return
     }
     const uri = textEditor.document.uri
-    const {promptText, apiKey, model, provider} = await setupParam(uri)
+    const {settingPromptPath, apiKey, model, provider} = await setupParam(uri)
+
+    const promptText = await getPrompt(settingPromptPath, apiKey, selectedText)
 
     const callLLMStream = FUNC_TABLE[provider]
 
