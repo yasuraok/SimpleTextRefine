@@ -91,7 +91,8 @@ async function prepareResultFile(uri, backup) {
         // {llmUrl}.{modified time} にバックアップを取る
         const dateStr = await modifiedDate(llmUri)
         const backupUri = vscode.Uri.file(`${llmUri.path}.${dateStr}`)
-        await vscode.workspace.fs.rename(llmUri, backupUri, { overwrite: true })
+        // renameだと既にエディタで開いている場合に追従してくる。それよりも最新ファイルを表示し続ける方が良いはずなので、copy
+        await vscode.workspace.fs.copy(llmUri, backupUri, { overwrite: true })
     }
 
     return llmUri
