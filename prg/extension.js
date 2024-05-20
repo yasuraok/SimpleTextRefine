@@ -1,5 +1,5 @@
 const vscode = require('vscode')
-const { exists, modifiedDate } = require('./common')
+const { exists, modifiedDate, showBothCurrentAndNewFile } = require('./common')
 const { getPrompt, openPromptFile } = require('./prompt')
 const { callGPTStream } = require('./callGPT')
 const { callClaudeStream } = require('./callClaude')
@@ -119,7 +119,7 @@ async function prepareResultWriter(llmUri, uri, openAsDiff, selectedText, wholeT
             await vscode.workspace.fs.writeFile(llmFile, Buffer.from(llmText))
         }
         await writer('')
-        await vscode.commands.executeCommand('vscode.open', llmUri)
+        await showBothCurrentAndNewFile(llmUri, 'Left')
         return writer
     }
 }

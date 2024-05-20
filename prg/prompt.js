@@ -1,7 +1,7 @@
 const vscode = require('vscode')
 const jsyaml = require('js-yaml')
 
-const { exists } = require('./common')
+const { exists, showBothCurrentAndNewFile } = require('./common')
 const { validate, PromptOption } = require('./type')
 
 const EXT_NAME = "simple-text-refine"
@@ -41,7 +41,7 @@ async function resolvePromptPath(configPath) {
         const selection = await vscode.window.showErrorMessage(`Prompt not found [${requestedPath}]`, 'Create')
         if (selection === 'Create') {
             await vscode.workspace.fs.writeFile(requestedPath, Buffer.from(TEMPLATE))
-            await openFileAbove(requestedPath)
+            await showBothCurrentAndNewFile(requestedPath, 'Above', false)
         }
         // promptを開いたかどうかに関わらずその後の処理は中止 (通知は済んでるのでnotificationなし)
         throw new Error('Canceled')
@@ -94,31 +94,10 @@ async function getPrompt(settingPromptPath, apiKey, text) {
     return {text:promptObj.description, option}
 }
 
-async function openFileAbove(file){
-    // 既に開かれているか調べる → 開かれていればそのファイルにフォーカスを移動する
-    const allEditors = vscode.window.visibleTextEditors
-    const openedEditor = allEditors.find(editor => editor.document.uri.fsPath === file.fsPath)
-    if (openedEditor) {
-        console.log({openedEditor})
-        await vscode.window.showTextDocument(openedEditor.document, {viewColumn: openedEditor.viewColumn})
-
-    } else {
-        // New Editor Group Above
-        await vscode.commands.executeCommand('workbench.action.newGroupAbove', {ratio: 0.2})
-        // Decrease Editor Height
-        await vscode.commands.executeCommand('workbench.action.decreaseViewHeight')
-        await vscode.commands.executeCommand('workbench.action.decreaseViewHeight')
-
-        // 上部に作ったグループにdocを表示する (フォーカスも移動)
-        const doc = await vscode.workspace.openTextDocument(file)
-        await vscode.window.showTextDocument(doc)
-    }
-}
-
 // promptファイルをエディタ画面で開く
 async function openPromptFile(config) {
     const promptPath = await resolvePromptPath(config.prompt_path)
-    await openFileAbove(promptPath)
+    await showBothCurrentAndNewFile(promptPath, 'Above', false)
 }
 
 module.exports = { openPromptFile, getPrompt }
