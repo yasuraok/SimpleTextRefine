@@ -4,7 +4,9 @@
     "engines": {
         "vscode": "^1.84.1"
     },
-    "extensionKind": ["workspace"],
+    "extensionKind": [
+        "workspace"
+    ],
     "repository": "https://github.com/yasuraok/SimpleTextRefine.git",
     "main": "./prg/extension.js",
     "activationEvents": [
@@ -74,6 +76,7 @@
         "@anthropic-ai/sdk": "^0.19.0",
         "@sinclair/typebox": "^0.32.30",
         "js-yaml": "^4.1.0",
-        "openai": "^4.23.0"
+        "openai": "^4.23.0",
+        "vectordb": "^0.4.20"
     }
 }

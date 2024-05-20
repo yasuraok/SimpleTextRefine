@@ -3,6 +3,7 @@ const jsyaml = require('js-yaml')
 
 const { exists, showBothCurrentAndNewFile } = require('./common')
 const { validate, PromptOption } = require('./type')
+const { retrieveTextByEmbedding } = require('./vector_db')
 
 const EXT_NAME = "simple-text-refine"
 
@@ -18,6 +19,8 @@ const TEMPLATE = `
     メールやチャットの投稿下書きを書いているユーザーから作成中の文章が与えられるので、添削し修正案を返してください。
     書き始めで文章が不足していたり不連続と思われる場合はそれを補完し、ほぼ完成している場合は文体の改善などをメインに修正してください。
 `.trimStart()
+
+const DEFAULT_RAG_LIMIT=3
 
 // デフォルトプロンプトのパスを返す。具体的にはworkspace直下の.vscode/simple-text-refine/.prompt,
 function getDefaultPromptPath() {
@@ -79,6 +82,30 @@ async function selectPromptObj(promptYaml) {
 
 
 /**
+ * RAGによってprompt.descriptionに追記してその結果を返す
+ * @param {{description: string, rag: {dbPath: string, limit: number}}} prompt
+ * @param {string} text
+ */
+async function embedReferences(prompt, text, apiKey){
+    const dbPath = prompt.rag?.dbPath
+
+    if(dbPath != null) {
+        const args = {
+            WorkspaceRoot: vscode.workspace.workspaceFolders?.[0].uri.fsPath || "",
+            ExtensionName: EXT_NAME,
+        }
+        const dbPathParsed = dbPath.replace(/\${(.*?)}/g, (_, p1) => args[p1] || p1)
+
+        const limit = prompt.rag?.limit ?? DEFAULT_RAG_LIMIT
+        const embedding = await retrieveTextByEmbedding(dbPathParsed, text, apiKey, limit)
+        const referenceTexts = embedding.map(e => e.text).join('\n')
+        return prompt.description + "\n\n" + referenceTexts
+    } else {
+        return prompt.description
+    }
+}
+
+/**
  * @param {string} settingPromptPath
  * @param {string} text
  * @param {string} apiKey
@@ -89,9 +116,11 @@ async function getPrompt(settingPromptPath, apiKey, text) {
     const promptYaml = await vscode.workspace.openTextDocument(promptPath).then(doc => doc.getText())
     // Display a UI to select the desired prompt from within the .prompt file for use with QuickPick
     const promptObj = await selectPromptObj(promptYaml)
+    // Embed references
+    const promptText = await embedReferences(promptObj, text, apiKey)
 
     const option = validate(PromptOption, promptObj)
-    return {text:promptObj.description, option}
+    return {text:promptText, option}
 }
 
 // promptファイルをエディタ画面で開く
