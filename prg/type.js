@@ -28,10 +28,10 @@ function validate(schema, data) {
  * @template {import('@sinclair/typebox/type').TSchema} S
  * @param {S} schema
  */
-function escalateDefault(schema){
+function propagateDefaultToParent(schema){
   if (schema.type === 'object' && schema.properties) {
     for (const [key, prop] of Object.entries(schema.properties)) {
-      escalateDefault(prop)
+      propagateDefaultToParent(prop)
       if ('default' in prop && !('default' in schema)) {
         schema.default = {}
       }
@@ -46,7 +46,7 @@ function toJSONSchema(schema){
 
 ///////////////////////////////////////////////////////////////////////////////
 
-const PromptOption = escalateDefault(Type.Object({
+const PromptOption = propagateDefaultToParent(Type.Object({
   output: Type.Object({
     backup: Type.Boolean({default: false}),
     // append: Type.Boolean(),
