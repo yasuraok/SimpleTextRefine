@@ -1,12 +1,14 @@
 const vscode = require('vscode')
 const { exists, modifiedDate, executeCommandToEditor, showBothCurrentAndNewFile } = require('./common')
 const { getPrompt, openPromptFile } = require('./prompt')
+const { encoding_for_model } = require('@dqbd/tiktoken')
 const { callGPTStream } = require('./callGPT')
 const { callClaudeStream } = require('./callClaude')
 
 const EXT_NAME = "simple-text-refine"
 
 const DEFAULT_MODEL = "openai/gpt-3.5-turbo"
+const MAX_TOKENS_EACH_BLOCK = 96000 // < 128k
 
 const MODELS = [
     "openai/gpt-4o",
@@ -16,6 +18,8 @@ const MODELS = [
     "anthropic/claude-3-sonnet-20240229",
     "anthropic/claude-3-haiku-20240307",
 ].map(label => ({label, description: ""}))
+
+const enc = encoding_for_model('gpt-4o')
 
 /**
  * vscode APIの設定を取得する
@@ -119,9 +123,52 @@ async function prepareResultWriter(llmUri, uri, openAsDiff, selectedText, wholeT
             await vscode.workspace.fs.writeFile(llmFile, Buffer.from(llmText))
         }
         await writer('')
-        await showBothCurrentAndNewFile(llmUri, 'Left')
+        const editor = await showBothCurrentAndNewFile(llmUri, 'Left')
+        await executeCommandToEditor(editor, 'workbench.action.files.setActiveEditorReadonlyInSession') // readonlyにしておく
         return writer
     }
+}
+
+// token数が多い場合に分割する
+function splitByMaxToken(longText, pattern){
+    // regexPatternにマッチする文字列の手前を分割点にしてテキストを分ける。全てのマッチで分割する
+    function split(longText, pattern){
+        const splitted = []
+        let lastIndex = 0
+        for(const match of longText.matchAll(new RegExp(pattern, 'gm'))){
+            splitted.push(longText.slice(lastIndex, match.index))
+            lastIndex = match.index
+        }
+        splitted.push(longText.slice(lastIndex))
+        return splitted.filter(b => b.length > 0)
+    }
+
+    // maxTokenまでの範囲で
+    function merge(splitted){
+        let chunks = []
+        let currentChunk = ""
+        let currentTokens = 0
+        for(const str of splitted){
+            const numToken = enc.encode(str).length
+            if(numToken > MAX_TOKENS_EACH_BLOCK){
+                throw new Error('too long token')
+            }
+            if(currentTokens + numToken > MAX_TOKENS_EACH_BLOCK){
+                chunks.push(currentChunk)
+                currentChunk = str
+                currentTokens = numToken
+            } else {
+                currentChunk += str
+                currentTokens += numToken
+            }
+        }
+        if(currentChunk.length > 0){
+            chunks.push(currentChunk)
+        }
+        return chunks
+    }
+
+    return merge(split(longText, pattern))
 }
 
 const FUNC_TABLE = {
@@ -152,23 +199,29 @@ async function callGPTAndOpenDiff(textEditor, textEditorEdit) {
     const llmUri = await prepareResultFile(uri, prompt.option.output.backup)
     const resultWriter = await prepareResultWriter(llmUri, uri, prompt.option.view.type === 'diff', selectedText, wholeText)
 
-    // callbackでgptの結果を受け取るが、頻度が高すぎるので
-    // 5秒おきにcontentの内容をエディタに反映する周期処理を横で走らせる
     let lastUpdated = null
     let gptText = ""
-    await callLLMStream(selectedText, prompt.text, apiKey, model, (delta) => {
-        gptText += delta
 
-        // ステータスバーには直近50文字だけ表示する
-        const statusText = gptText.slice(-50).replace(/\n/g, ' ')
-        vscode.window.setStatusBarMessage(statusText, 5000)
+    const textChunks = splitByMaxToken(selectedText, '^- id: ')
+    for (let chunk of textChunks){
+        console.log('chunk:', chunk.length, 'tokens:', enc.encode(chunk).length)
 
-        // 2秒経過した場合に限りエディタ内も更新
-        if (lastUpdated === null || Date.now() - lastUpdated > 2000) {
-            resultWriter(gptText + "\n")
-            lastUpdated = Date.now()
-        }
-    })
+        // callbackでgptの結果を受け取るが、頻度が高すぎるので
+        // 5秒おきにcontentの内容をエディタに反映する周期処理を横で走らせる
+        await callLLMStream(chunk, prompt.text, apiKey, model, (delta) => {
+            gptText += delta
+
+            // ステータスバーには直近50文字だけ表示する
+            const statusText = gptText.slice(-50).replace(/\n/g, ' ')
+            vscode.window.setStatusBarMessage(statusText, 5000)
+
+            // 2秒経過した場合に限りエディタ内も更新
+            if (lastUpdated === null || Date.now() - lastUpdated > 2000) {
+                resultWriter(gptText + "\n")
+                lastUpdated = Date.now()
+            }
+        })
+    }
     resultWriter(gptText + "\n")
 
     vscode.window.setStatusBarMessage('finished.', 5000)
