@@ -58,15 +58,12 @@ async function setupParam(){
         })
     }
 
-    /** @type string */ // prompt_pathの取得
-    const settingPromptPath = getConfigValue('prompt_path')
-
     const maxToken = Math.min(MODELS[providerModel].max_tokens || 0, GLOBAL_MAX_TOKENS)
     const encodingModel = (provider === 'openai') ? model : 'gpt-3.5-turbo'
     const enc = encoding_for_model(encodingModel)
     const tokenCalc = (text) => enc.encode(text).length
 
-    return {settingPromptPath, apiKey, model, provider, maxToken, tokenCalc}
+    return {apiKey, model, provider, maxToken, tokenCalc}
 }
 
 function makeCachePath(uri){
@@ -194,7 +191,8 @@ async function callGPTAndOpenDiff(textEditor, textEditorEdit) {
         return
     }
     const uri = textEditor.document.uri
-    const {settingPromptPath, apiKey, model, provider, maxToken, tokenCalc} = await setupParam()
+    const {apiKey, model, provider, maxToken, tokenCalc} = await setupParam()
+    const settingPromptPath = /** @type string */ getConfigValue('prompt_path')
 
     const prompt = await getPrompt(settingPromptPath, apiKey, selectedText)
 
@@ -240,8 +238,54 @@ async function callGPTAndOpenDiff(textEditor, textEditorEdit) {
     vscode.window.setStatusBarMessage('finished.', 5000)
 }
 
-async function openPrompt(textEditor, textEditorEdit){
+async function openPrompt(){
     await openPromptFile(getConfig(['prompt_path']))
+}
+
+async function oneshotAsk(){
+    const text = await vscode.window.showInputBox({
+        prompt: 'Enter your question to LLM'
+    })
+
+    const now = (new Date()).toISOString()
+    const uri = makeCachePath(now + ".txt")
+
+    const resultWriter = async (llmText) => {
+        await vscode.workspace.fs.writeFile(uri, Buffer.from(text + "\n\n" + llmText))
+    }
+    await resultWriter('')
+    await vscode.window.showTextDocument(uri)
+
+    const {apiKey, provider, model} = await setupParam()
+    const callLLMStream = FUNC_TABLE[provider]
+
+    let lastUpdated = null
+    let gptText = ""
+    let aborted = false
+
+    vscode.window.showInformationMessage(`calling ${model}...`, 'Abort').then(selection => {
+        // awaitしてないので、ここで直接中断をかけることはできない → フラグを立てるだけ
+        if (selection === 'Abort') aborted = true
+    })
+
+    // callbackでgptの結果を受け取るが、頻度が高すぎるので
+    // 5秒おきにcontentの内容をエディタに反映する周期処理を横で走らせる
+    await callLLMStream(text, "", apiKey, model, (delta) => {
+        if (aborted) throw new Error('Canceled') // 中断
+        gptText += delta
+
+        // ステータスバーには直近50文字だけ表示する
+        const statusText = gptText.slice(-50).replace(/\n/g, ' ')
+        vscode.window.setStatusBarMessage(statusText, 5000)
+
+        // 2秒経過した場合に限りエディタ内も更新
+        if (lastUpdated === null || Date.now() - lastUpdated > 2000) {
+            resultWriter(gptText + "\n")
+            lastUpdated = Date.now()
+        }
+    })
+
+    resultWriter(gptText + "\n")
 }
 
 function makeNotifyable(func){
@@ -278,6 +322,12 @@ function activate(context) {
     context.subscriptions.push(vscode.commands.registerCommand(
         `${EXT_NAME}.openPrompt`,
         makeNotifyable(openPrompt)
+    ))
+
+    // 単発のLLMリクエストを出す
+    context.subscriptions.push(vscode.commands.registerTextEditorCommand(
+        `${EXT_NAME}.one-shotAsk`,
+        makeNotifyable(oneshotAsk)
     ))
 
     // 選択範囲のテキストのみをGPTに添削させる

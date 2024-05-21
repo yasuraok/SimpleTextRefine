@@ -30,6 +30,10 @@
             {
                 "command": "simple-text-refine.openDiff",
                 "title": "Simple Text Refine: open diff view"
+            },
+            {
+                "command": "simple-text-refine.one-shotAsk",
+                "title": "Simple Text Refine: one-shot Ask to LLM (w/o prompt)"
             }
         ],
         "languages": [
