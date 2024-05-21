@@ -1,7 +1,23 @@
 const vscode = require('vscode')
-
-const { Buffer } = require('buffer')
 const OpenAI = require('openai')
+
+// https://platform.openai.com/docs/guides/rate-limits/usage-tiers?context=tier-one
+// https://help.openai.com/en/articles/5955604-how-can-i-solve-429-too-many-requests-errors
+async function backoff(func, maxRetries = 5, delay = 30000) {
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            return await func()
+        } catch (error) {
+            if (error instanceof OpenAI.RateLimitError) {
+                vscode.window.showInformationMessage(`waiting to avoid rate limit...`)
+                await new Promise(resolve => setTimeout(resolve, delay))
+            } else {
+                throw error
+            }
+        }
+    }
+    throw new Error('Retry limit exceeded')
+}
 
 function makeSystemMsg(prompt) {
     return {
@@ -23,13 +39,15 @@ async function callGPTStream(text, systemPrompt, apiKey, model, callback) {
 
     const messages = [makeSystemMsg(systemPrompt), makeUserMsg(text)]
 
-    vscode.window.showInformationMessage(`calling ${model}...: ${systemPrompt}`)
-
-    const responses = await openai.chat.completions.create({
+    const arg = {
         model,
         messages,
         stream: true,
-    });
+    }
+
+    const responses = await backoff(async () => {
+        return await openai.chat.completions.create(arg)
+    })
 
     // ストリーミング処理
     let content = "";

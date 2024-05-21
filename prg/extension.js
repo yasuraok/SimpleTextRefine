@@ -7,19 +7,19 @@ const { callClaudeStream } = require('./callClaude')
 
 const EXT_NAME = "simple-text-refine"
 
+const GLOBAL_MAX_TOKENS = 28000 // < 30000 = min TokensPerMinute of (gpt-3.5-turbo, gpt-4, gpt-4o) in Usage tier 1: https://platform.openai.com/docs/guides/rate-limits?context=tier-one
+const PATTERN = '^- id: '
+
 const DEFAULT_MODEL = "openai/gpt-3.5-turbo"
-const MAX_TOKENS_EACH_BLOCK = 96000 // < 128k
-
-const MODELS = [
-    "openai/gpt-4o",
-    "openai/gpt-4-turbo",
-    DEFAULT_MODEL,
-    "anthropic/claude-3-opus-20240229",
-    "anthropic/claude-3-sonnet-20240229",
-    "anthropic/claude-3-haiku-20240307",
-].map(label => ({label, description: ""}))
-
-const enc = encoding_for_model('gpt-4o')
+const MODELS = {
+    "openai/gpt-4o"      : {'max_tokens': 128000},
+    "openai/gpt-4-turbo" : {'max_tokens': 128000},
+    [DEFAULT_MODEL]      : {'max_tokens': 16385},
+    "anthropic/claude-3-opus-20240229"   : {'max_tokens': 128000}, // FIXME 調べてない
+    "anthropic/claude-3-sonnet-20240229" : {'max_tokens': 128000},
+    "anthropic/claude-3-haiku-20240307"  : {'max_tokens': 128000},
+}
+const MODEL_NAMES = Object.entries(MODELS).map(([label, param]) => ({label, description: JSON.stringify(param)}))
 
 /**
  * vscode APIの設定を取得する
@@ -34,7 +34,7 @@ function getConfig(keys){
 }
 
 async function changeModel() {
-    const result = await vscode.window.showQuickPick(MODELS);
+    const result = await vscode.window.showQuickPick(MODEL_NAMES);
     if (result) {
         // vscodeの設定にmodelを保存する
         const config = vscode.workspace.getConfiguration(EXT_NAME)
@@ -43,7 +43,7 @@ async function changeModel() {
     }
 }
 
-async function setupParam(uri){
+async function setupParam(){
     const providerModel = getConfigValue('model') || DEFAULT_MODEL
     const [provider, model] = providerModel.split('/')
 
@@ -61,7 +61,12 @@ async function setupParam(uri){
     /** @type string */ // prompt_pathの取得
     const settingPromptPath = getConfigValue('prompt_path')
 
-    return {settingPromptPath, apiKey, model, provider}
+    const maxToken = Math.min(MODELS[providerModel].max_tokens || 0, GLOBAL_MAX_TOKENS)
+    const encodingModel = (provider === 'openai') ? model : 'gpt-3.5-turbo'
+    const enc = encoding_for_model(encodingModel)
+    const tokenCalc = (text) => enc.encode(text).length
+
+    return {settingPromptPath, apiKey, model, provider, maxToken, tokenCalc}
 }
 
 function makeCachePath(uri){
@@ -130,7 +135,7 @@ async function prepareResultWriter(llmUri, uri, openAsDiff, selectedText, wholeT
 }
 
 // token数が多い場合に分割する
-function splitByMaxToken(longText, pattern){
+function splitByMaxToken(longText, pattern, tokenCalc, maxToken){
     // regexPatternにマッチする文字列の手前を分割点にしてテキストを分ける。全てのマッチで分割する
     function split(longText, pattern){
         const splitted = []
@@ -149,11 +154,11 @@ function splitByMaxToken(longText, pattern){
         let currentChunk = ""
         let currentTokens = 0
         for(const str of splitted){
-            const numToken = enc.encode(str).length
-            if(numToken > MAX_TOKENS_EACH_BLOCK){
+            const numToken = tokenCalc(str)
+            if(numToken > maxToken){
                 throw new Error('too long token')
             }
-            if(currentTokens + numToken > MAX_TOKENS_EACH_BLOCK){
+            if(currentTokens + numToken > maxToken){
                 chunks.push(currentChunk)
                 currentChunk = str
                 currentTokens = numToken
@@ -189,7 +194,7 @@ async function callGPTAndOpenDiff(textEditor, textEditorEdit) {
         return
     }
     const uri = textEditor.document.uri
-    const {settingPromptPath, apiKey, model, provider} = await setupParam(uri)
+    const {settingPromptPath, apiKey, model, provider, maxToken, tokenCalc} = await setupParam()
 
     const prompt = await getPrompt(settingPromptPath, apiKey, selectedText)
 
@@ -201,14 +206,22 @@ async function callGPTAndOpenDiff(textEditor, textEditorEdit) {
 
     let lastUpdated = null
     let gptText = ""
+    let aborted = false
 
-    const textChunks = splitByMaxToken(selectedText, '^- id: ')
-    for (let chunk of textChunks){
-        console.log('chunk:', chunk.length, 'tokens:', enc.encode(chunk).length)
+    const textChunks = splitByMaxToken(selectedText, PATTERN, tokenCalc, maxToken)
+    for (let [i, chunk] of textChunks.entries()){
+        if (aborted) throw new Error('Canceled') // 中断
+
+        const progressText = textChunks.length > 1 ? `${i+1}/${textChunks.length} ${tokenCalc(chunk)} tokens ` : ''
+        vscode.window.showInformationMessage(`calling ${progressText}${model}...: ${prompt.text}`, 'Abort').then(selection => {
+            // awaitしてないので、ここで直接中断をかけることはできない → フラグを立てるだけ
+            if (selection === 'Abort') aborted = true
+        })
 
         // callbackでgptの結果を受け取るが、頻度が高すぎるので
         // 5秒おきにcontentの内容をエディタに反映する周期処理を横で走らせる
         await callLLMStream(chunk, prompt.text, apiKey, model, (delta) => {
+            if (aborted) throw new Error('Canceled') // 中断
             gptText += delta
 
             // ステータスバーには直近50文字だけ表示する
