@@ -204,24 +204,37 @@ async function callGPTAndOpenDiff(textEditor, textEditorEdit) {
     // LLM応答を格納するファイルを用意し表示する。diff表示か否かによって書き込む内容が変わるので、関数を作っておく
     const resultWriter = await prepareResultWriter(textEditor, prompt.option.output, selectedText, wholeText)
 
-    // callbackでgptの結果を受け取るが、頻度が高すぎるので
-    // 5秒おきにcontentの内容をエディタに反映する周期処理を横で走らせる
     let lastUpdated = null
     let gptText = ""
-    await callLLMStream(selectedText, prompt.text, apiKey, model, async (delta) => {
-        gptText += delta
+    let aborted = false
 
-        // ステータスバーには直近50文字だけ表示する
-        const statusText = gptText.slice(-50).replace(/\n/g, ' ')
-        vscode.window.setStatusBarMessage(statusText, 5000)
+    await vscode.window.withProgress({
+        title: `calling ${model}...: ${prompt.text}`,
+        location: vscode.ProgressLocation.Notification,
+        cancellable: true
+    },
+    async (progress, token) => {
+        token.onCancellationRequested(() => { aborted = true })
 
-        // 2秒経過した場合に限りエディタ内も更新
-        if (lastUpdated === null || Date.now() - lastUpdated > 2000) {
-            await resultWriter(gptText + "\n")
-            lastUpdated = Date.now()
-        }
+        await callLLMStream(selectedText, prompt.text, apiKey, model, async (delta) => {
+            if (aborted) throw new Error('Canceled')
+            gptText += delta
+
+            // 直近50文字だけ表示する
+            const statusText = gptText.slice(-50).replace(/\n/g, ' ')
+            progress.report({ message: statusText });
+
+            // 2秒経過した場合に限りエディタ内も更新
+            if (lastUpdated === null || Date.now() - lastUpdated > 2000) {
+                await resultWriter(gptText + "\n")
+                lastUpdated = Date.now()
+            }
+        })
+
+        await resultWriter(gptText + "\n", true)
     })
-    await resultWriter(gptText + "\n", true)
+
+
 
     vscode.window.setStatusBarMessage('finished.', 5000)
 }

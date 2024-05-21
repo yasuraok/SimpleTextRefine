@@ -23,8 +23,6 @@ async function callGPTStream(text, systemPrompt, apiKey, model, callback) {
 
     const messages = [makeSystemMsg(systemPrompt), makeUserMsg(text)]
 
-    vscode.window.showInformationMessage(`calling ${model}...: ${systemPrompt}`)
-
     const responses = await openai.chat.completions.create({
         model,
         messages,
