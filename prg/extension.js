@@ -1,5 +1,5 @@
 const vscode = require('vscode')
-const { exists, modifiedDate, executeCommandToEditor, showBothCurrentAndNewFile } = require('./common')
+const { exists, modifiedDate, executeCommandToEditor, showBothCurrentAndNewFile, getEditorEndPos } = require('./common')
 const { getPrompt, openPromptFile } = require('./prompt')
 const { callGPTStream } = require('./callGPT')
 const { callClaudeStream } = require('./callClaude')
@@ -95,32 +95,85 @@ async function prepareResultFile(uri, backup) {
         await vscode.workspace.fs.copy(llmUri, backupUri, { overwrite: true })
     }
 
-    return llmUri
-}
-
-// LLM書き込み先のファイルをEditorで開きつつ、LLM応答を書き込む関数を返す
-async function prepareResultWriter(llmUri, uri, openAsDiff, selectedText, wholeText) {
     const llmFile = vscode.Uri.file(llmUri.path)
 
-    if (openAsDiff) {
-        // そのファイルをvscode.diffで表示する。現時点ではleft -> right方向だけdiffを適用できるので、LLM応答をleftに表示する
-        // diffとして見えるように、元ファイルの選択範囲をLLM応答で置き換える形をとる
-        const writer = async (llmText) => {
-            const gptWholeText = wholeText.replace(selectedText, llmText)
-            await vscode.workspace.fs.writeFile(llmFile, Buffer.from(gptWholeText))
-        }
-        await writer('')
-        await vscode.commands.executeCommand('vscode.diff', llmUri, uri)
-        return writer
+    return [llmUri, llmFile]
+}
 
-    } else {
-        // そのファイルを通常のエディタ画面で開く
-        const writer = async (llmText) => {
-            await vscode.workspace.fs.writeFile(llmFile, Buffer.from(llmText))
+function __throw(e){ throw e }
+
+/**
+ * LLM書き込み先のファイルをEditorで開きつつ、LLM応答を書き込む関数を返す
+ * @param {vscode.TextEditor} editor
+ * @param {{backup: boolean, type: 'normal'|'diff'|'append'}} outputOpt
+ * @param {string} selectedText
+ * @param {string} wholeText
+ * @returns
+ */
+async function prepareResultWriter(editor, outputOpt, selectedText, wholeText) {
+    const uri = editor.document.uri
+
+    switch (outputOpt.type) {
+        case 'diff': {
+            // そのファイルをvscode.diffで表示する。現時点ではleft -> right方向だけdiffを適用できるので、LLM応答をleftに表示する
+            // diffとして見えるように、元ファイルの選択範囲をLLM応答で置き換える形をとる
+            const [llmUri, llmFile] = await prepareResultFile(uri, outputOpt.backup)
+            const writer = async (llmText) => {
+                const gptWholeText = wholeText.replace(selectedText, llmText)
+                await vscode.workspace.fs.writeFile(llmFile, Buffer.from(gptWholeText))
+            }
+            await writer('')
+            await vscode.commands.executeCommand('vscode.diff', llmUri, uri)
+            return writer
         }
-        await writer('')
-        await showBothCurrentAndNewFile(llmUri, 'Left')
-        return writer
+        case 'normal': {
+            // そのファイルを通常のエディタ画面で開く
+            const [llmUri, llmFile] = await prepareResultFile(uri, outputOpt.backup)
+            const writer = async (llmText) => {
+                await vscode.workspace.fs.writeFile(llmFile, Buffer.from(llmText))
+            }
+            await writer('')
+            await showBothCurrentAndNewFile(llmUri, 'Left')
+            return writer
+        }
+        case 'append': {
+            // もとのファイルの選択範囲直後にLLM応答をappendする
+            // 編集中のファイルなのでwriteFileではなくeditor.editを駆使して何とかする
+            // LLM応答中に人間が編集できないようにreadonlyにするが、editor.editも効かなくなってしまうので、瞬間的に解除する
+            // 隙間のタイミングで一瞬だけ編集できた場合にPositionがズレるので、ファイル全体を置換し続ける
+
+            // 人間が編集しない前提なら、以下のようなコードで変更部分だけを差し替えていくことが可能
+            // const prevRange = new vscode.Range(llmStartPos, prevEndPos)
+            // await editor.edit(editBuilder => {
+            //     editBuilder.replace(prevRange, llmText)
+            // })
+            // const splitText = llmText.split('\n')
+            // prevEndPos = llmStartPos.translate({
+            //     lineDelta: splitText.length - 1,
+            //     characterDelta: 0
+            // })
+
+            await vscode.commands.executeCommand('workbench.action.files.setActiveEditorReadonlyInSession')
+            const s = new vscode.Position(0, 0)
+            const e = getEditorEndPos(editor)
+            const beforeText = editor.document.getText(new vscode.Range(s, editor.selection.end))
+            const afterText  = editor.document.getText(new vscode.Range(editor.selection.end, e))
+
+            const writer = async (llmText, finished) => {
+                await vscode.commands.executeCommand('workbench.action.files.resetActiveEditorReadonlyInSession')
+                await editor.edit(editBuilder => {
+                    const s = new vscode.Position(0, 0)
+                    const e = getEditorEndPos(editor)
+                    if (! beforeText && ! afterText) {
+                    }
+                    editBuilder.replace(new vscode.Range(s, e), beforeText + llmText + afterText)
+                })
+                if (! finished) {
+                    await vscode.commands.executeCommand('workbench.action.files.setActiveEditorReadonlyInSession')
+                }
+            }
+            return writer
+        }
     }
 }
 
@@ -149,14 +202,13 @@ async function callGPTAndOpenDiff(textEditor, textEditorEdit) {
     const callLLMStream = FUNC_TABLE[provider]
 
     // LLM応答を格納するファイルを用意し表示する。diff表示か否かによって書き込む内容が変わるので、関数を作っておく
-    const llmUri = await prepareResultFile(uri, prompt.option.output.backup)
-    const resultWriter = await prepareResultWriter(llmUri, uri, prompt.option.view.type === 'diff', selectedText, wholeText)
+    const resultWriter = await prepareResultWriter(textEditor, prompt.option.output, selectedText, wholeText)
 
     // callbackでgptの結果を受け取るが、頻度が高すぎるので
     // 5秒おきにcontentの内容をエディタに反映する周期処理を横で走らせる
     let lastUpdated = null
     let gptText = ""
-    await callLLMStream(selectedText, prompt.text, apiKey, model, (delta) => {
+    await callLLMStream(selectedText, prompt.text, apiKey, model, async (delta) => {
         gptText += delta
 
         // ステータスバーには直近50文字だけ表示する
@@ -165,11 +217,11 @@ async function callGPTAndOpenDiff(textEditor, textEditorEdit) {
 
         // 2秒経過した場合に限りエディタ内も更新
         if (lastUpdated === null || Date.now() - lastUpdated > 2000) {
-            resultWriter(gptText + "\n")
+            await resultWriter(gptText + "\n")
             lastUpdated = Date.now()
         }
     })
-    resultWriter(gptText + "\n")
+    await resultWriter(gptText + "\n", true)
 
     vscode.window.setStatusBarMessage('finished.', 5000)
 }

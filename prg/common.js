@@ -86,4 +86,17 @@ async function showBothCurrentAndNewFile(newFileUri, direction, focusOrig = true
     return editor
 }
 
-module.exports = { exists, modifiedDate, executeCommandToEditor, showBothCurrentAndNewFile }
+///////////////////////////////////////////////////////////////////////////////
+// TextEditor周り
+
+/**
+ * @param {vscode.TextEditor} editor
+ */
+function getEditorEndPos(editor){
+    let document = editor.document;
+    let lastLine = document.lineAt(document.lineCount - 1);
+    let lastCharPosition = lastLine.text.length;
+    return new vscode.Position(document.lineCount - 1, lastCharPosition);
+}
+
+module.exports = { exists, modifiedDate, executeCommandToEditor, showBothCurrentAndNewFile, getEditorEndPos }

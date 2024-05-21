@@ -49,13 +49,14 @@ function toJSONSchema(schema){
 const PromptOption = propagateDefaultToParent(Type.Object({
   output: Type.Object({
     backup: Type.Boolean({default: false}),
+    type: Type.Union([Type.Literal('normal'), Type.Literal('diff'), Type.Literal('append')], {default: 'diff'}),
     // append: Type.Boolean(),
-  }),
-  view: Type.Object({
-    type: Type.String({default: 'diff'}),
-    // at: Type.String(),
-  }),
+  })
 }))
 /** @typedef {Static<PromptOption>} PromptOptionType */
 
+
 module.exports = { Type, validate, PromptOption }
+
+// console.log(toJSONSchema(PromptOption))
+// console.log(validate(PromptOption, {}))
