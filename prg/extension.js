@@ -1,5 +1,5 @@
 const vscode = require('vscode')
-const { exists, modifiedDate, showBothCurrentAndNewFile } = require('./common')
+const { exists, modifiedDate, executeCommandToEditor, showBothCurrentAndNewFile } = require('./common')
 const { getPrompt, openPromptFile } = require('./prompt')
 const { callGPTStream } = require('./callGPT')
 const { callClaudeStream } = require('./callClaude')

@@ -9,6 +9,21 @@ async function modifiedDate(uri){
     return (new Date(mtime)).toISOString()
 }
 
+/**
+ * executeCommandはフォーカスが当たっているエディタに対してしかできないので、フォーカス外のエディタに何かする際には
+ * フォーカス移動 → 何か操作 → フォーカス戻す という流れになる。この関数はその流れをまとめて行う
+ * @param {vscode.TextEditor} editor
+ * @param {string} commandString
+ */
+async function executeCommandToEditor(editor, commandString) {
+    const origEditor = vscode.window.activeTextEditor
+    if (!origEditor) return false
+    await vscode.window.showTextDocument(editor.document, {viewColumn: editor.viewColumn})
+    await vscode.commands.executeCommand(commandString)
+    await vscode.window.showTextDocument(origEditor.document, {viewColumn: origEditor.viewColumn})
+}
+
+
 ///////////////////////////////////////////////////////////////////////////////
 // ファイルを開いたりエディタを分割したりは今のAPIだと非常に難解なのでいろいろメモしながらこのファイルにまとめる
 // vscode.window.visibleTextEditors = 複数タブグループに分かれているときのそれぞれで今見えているEditor vscode.TextEditor[]
@@ -44,21 +59,20 @@ async function showBothCurrentAndNewFile(newFileUri, direction, focusOrig = true
     const origFileUri = vscode.window.activeTextEditor?.document.uri
     const origTabGroup = vscode.window.tabGroups.activeTabGroup
 
-    // 1. そのファイルが別エディタで開いていたら、それを前面に出して見えるようにする
+    // 1. そのファイルが別タブグループで開いていたら、それを前面に出して見えるようにする
     for (let tabGroup of vscode.window.tabGroups.all) {
         if (tabGroup === origTabGroup) continue
         for (let tab of tabGroup.tabs) {
             if (! (tab.input instanceof vscode.TabInputText)) continue
             if (tab.input.uri.fsPath === newFileUri.fsPath) {
                 const opt =  {viewColumn: tabGroup.viewColumn, preserveFocus: focusOrig}
-                await vscode.window.showTextDocument(newFileUri, opt)
-                return
+                return await vscode.window.showTextDocument(newFileUri, opt)
             }
         }
     }
 
     // 2. 開いていないか、あっても同じタブグループなら、必要に応じてエディタグループを作り、そこに表示する
-    await vscode.window.showTextDocument(newFileUri) // llmUriを開きフォーカスする (元々activeTabGroupで開いている場合も結果は同じ)
+    const editor = await vscode.window.showTextDocument(newFileUri) // llmUriを開きフォーカスする (元々activeTabGroupで開いている場合も結果は同じ)
     const groupAdded = await moveCurrentFileTo(direction) // そのファイルを別タブグループに動かす
 
     // フォーカスを維持したかった場合は戻す
@@ -68,6 +82,8 @@ async function showBothCurrentAndNewFile(newFileUri, direction, focusOrig = true
         const viewColumn = origTabGroup.viewColumn + (groupAdded && isLeftOrAbove ? 1 : 0)
         await vscode.window.showTextDocument(origFileUri, {viewColumn, preserveFocus: false})
     }
+
+    return editor
 }
 
-module.exports = { exists, modifiedDate, showBothCurrentAndNewFile }
+module.exports = { exists, modifiedDate, executeCommandToEditor, showBothCurrentAndNewFile }
