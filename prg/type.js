@@ -3,21 +3,26 @@ const { Value } = require('@sinclair/typebox/value');
 const { ValueErrorType } = require('@sinclair/typebox/errors');
 
 /**
- * @template {import('@sinclair/typebox/type').TSchema} S
- * @param {S} schema
+ * @typedef {import('@sinclair/typebox/type').TSchema} TSchema
+ */
+
+/**
+ * @template {TSchema} S
  * @typedef {import('@sinclair/typebox').Static<S>} Static
  */
 
 /**
  * Validates the given data and return **type-annotated** object.
  * Throws an error if there are any validation errors.
- * @template {import('@sinclair/typebox/type').TSchema} S
+ * @template {TSchema} S
  * @param {S} schema
  * @return {Static<S>}
  */
 function parse(schema, data) {
-  if(schema.default != null) {
-    data = Value.Default(schema, Value.Clone(data))
+  if (schema.defaultSchema != null) {
+    data = Value.Default(schema.defaultSchema, Value.Clone(data)) // default埋め専用のスキーマを使う
+  } else if (schema.default != null) {
+    data = Value.Default(schema,               Value.Clone(data))
   }
 
   function recursive(schema, data) {
@@ -45,7 +50,7 @@ function parse(schema, data) {
 
 /**
  * nested objectの下にdefaultがある場合に、そのdefaultを上に伝播させる
- * @template {import('@sinclair/typebox/type').TSchema} S
+ * @template {TSchema} S
  * @param {S} schema
  */
 function propagateDefaultToParent(schema){
@@ -78,6 +83,9 @@ function propagateDefaultToParent(schema){
   return schema // inplaceに書き換えてるが、関数をwrapしやすいように
 }
 
+/**
+ * JSON Schemaの形式で出力する
+ */
 function toJSONSchema(schema){
   return JSON.stringify(Type.Strict(schema), null, 2)
 }
@@ -91,35 +99,72 @@ const OutputTypes = [
   Type.Literal('ask')
 ]
 
-const Prompt = propagateDefaultToParent(Type.Object({
-  label:       Type.Optional(Type.String({default: ''})),
-  description: Type.String(),
-  output:      Type.Optional(Type.Object({
-    backup:      Type.Optional(Type.Boolean({default: false})),
-    type:        Type.Optional(Type.Union(OutputTypes, {default: 'diff'})),
-  })),
-}))
-/** @typedef {Static<Prompt>} PromptType */
+// yaml schemaとしてはdefaultがあるものはoptionalで定義して書かなくても良いようにしておく (代わりに必ずdefaultを付ける)
+const PromptInputArray = propagateDefaultToParent(
+  Type.Array(
+    Type.Union([
+      // objectかstringのどちらか
+      Type.Object({
+        label:       Type.Optional(Type.String({default: ''})),
+        description: Type.String(),
+        output:      Type.Optional(Type.Object({
+          backup:      Type.Optional(Type.Boolean({default: false})),
+          type:        Type.Optional(Type.Union(OutputTypes, {default: 'diff'})),
+        })),
+      }),
 
-const PromptYaml = propagateDefaultToParent(Type.Array(
-  Type.Union([
-    Prompt,
-    Type.String(), // リスト直下に文字列がある場合もOKとする (実装側でdescriptionとして使う)
-  ])
-))
-/** @typedef {Static<typeof PromptYaml>} PromptYamlType */
+      // リスト直下に文字列がある場合もOKとする (実装側でdescriptionに埋め直す)
+      Type.String(),
+    ])
+  )
+)
+const PromptInput = PromptInputArray.items.anyOf[0]
+/** @typedef {Static<typeof PromptInputArray>}                PromptInputArrayType */
+/** @typedef {Static<typeof PromptInputArray.items.anyOf[0]>} PromptInputType */
 
-module.exports = { Type, parse, PromptYaml, Prompt }
+// プログラム内では必ずValue.Defaultを通した後の状態で使うので、optionalを外した型も定義する
+// 再帰的にRequiredを付ける実装はまだないので、今時点では2重管理する。optional型でValue.Defaultを通して、Required型でErrorチェックするので、型が合わない場合はエラーになる
+// Partialの方はdeepPartialの試作があるらしい: https://github.com/sinclairzx81/typebox/blob/master/example/prototypes/partial-deep.ts
+// ちなみにzodではdeepPartialがあるがdeepRequiredがまだないらしい → なくなるらしい…: https://github.com/colinhacks/zod/issues/2854
+const PromptArray = (
+  Type.Array(
+    Type.Union([
+      // objectかstringのどちらか
+      Type.Object({
+        label:       Type.String(),
+        description: Type.String(),
+        output:      Type.Object({
+          backup:      Type.Boolean(),
+          type:        Type.Union(OutputTypes),
+        }),
+      }),
+
+      // リスト直下に文字列がある場合もOKとする (実装側でdescriptionに埋め直す)
+      Type.String(),
+    ])
+  )
+)
+const Prompt = PromptArray.items.anyOf[0]
+/** @typedef {Static<typeof PromptArray>}                PromptArrayType */
+/** @typedef {Static<typeof PromptArray.items.anyOf[0]>} PromptType */
+
+// Value.Default用のスキーマと関連付ける
+PromptArray.defaultSchema = PromptInputArray
+Prompt.defaultSchema = PromptInput
+
+module.exports = {
+  Type, parse, Prompt, PromptArray
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 
-console.log(toJSONSchema(PromptYaml))
+// console.log(toJSONSchema(PromptInputArray))
 
-// console.log(parse(PromptYaml, [
+// console.log(parse(PromptArray, [
 //   'pass', // ただの文字列はOK
 //   {description: 'test'}, // default未設定のdescriptionされあれば後はdefaultが適用されてOK
 // ]))
-// console.log(parse(PromptYaml, [
+// console.log(parse(PromptArray, [
 //   {}, // Prompt型でrequiredのdescriptionがないのでエラー (その際にPrompt型としてのエラーが表示される)
 //   {description: 'test', output: {type: 'another'}}, // typeが候補にないのでエラー
 //   {label: 4, description: 'test'}, // labelがstringでないのでエラー

@@ -2,7 +2,7 @@ const vscode = require('vscode')
 const jsyaml = require('js-yaml')
 
 const { exists, showBothCurrentAndNewFile } = require('./common')
-const { parse, PromptYaml, Prompt } = require('./type')
+const { parse, PromptArray, Prompt } = require('./type')
 
 const EXT_NAME = "simple-text-refine"
 
@@ -52,7 +52,7 @@ async function resolvePromptPath(configPath) {
 
 async function selectPromptObj(promptYaml) {
     // Parse and check if it's array
-    const prompts = parse(PromptYaml, jsyaml.load(promptYaml))
+    const prompts = parse(PromptArray, jsyaml.load(promptYaml))
 
     // Display the choices at VSCode QuickPick
     const items = prompts.map(p => {
