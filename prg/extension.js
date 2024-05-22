@@ -197,26 +197,26 @@ async function callGPTAndOpenDiff(textEditor, textEditorEdit) {
     const uri = textEditor.document.uri
     const {settingPromptPath, apiKey, model, provider} = await setupParam(uri)
 
-    const prompt = await getPrompt(settingPromptPath, apiKey, selectedText)
+    const {description, output} = await getPrompt(settingPromptPath)
 
     const callLLMStream = FUNC_TABLE[provider]
 
     // LLM応答を格納するファイルを用意し表示する。diff表示か否かによって書き込む内容が変わるので、関数を作っておく
-    const resultWriter = await prepareResultWriter(textEditor, prompt.option.output, selectedText, wholeText)
+    const resultWriter = await prepareResultWriter(textEditor, output, selectedText, wholeText)
 
     let lastUpdated = null
     let gptText = ""
     let aborted = false
 
     await vscode.window.withProgress({
-        title: `calling ${model}...: ${prompt.text}`,
+        title: `calling ${model}...: ${description}`,
         location: vscode.ProgressLocation.Notification,
         cancellable: true
     },
     async (progress, token) => {
         token.onCancellationRequested(() => { aborted = true })
 
-        await callLLMStream(selectedText, prompt.text, apiKey, model, async (delta) => {
+        await callLLMStream(selectedText, description, apiKey, model, async (delta) => {
             if (aborted) throw new Error('Canceled')
             gptText += delta
 

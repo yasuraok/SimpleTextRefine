@@ -2,7 +2,7 @@ const vscode = require('vscode')
 const jsyaml = require('js-yaml')
 
 const { exists, showBothCurrentAndNewFile } = require('./common')
-const { validate, PromptOption } = require('./type')
+const { parse, PromptYaml, Prompt } = require('./type')
 
 const EXT_NAME = "simple-text-refine"
 
@@ -52,20 +52,14 @@ async function resolvePromptPath(configPath) {
 
 async function selectPromptObj(promptYaml) {
     // Parse and check if it's array
-    const prompts = jsyaml.load(promptYaml)
-    if (!Array.isArray(prompts)) {
-        throw new Error(`.prompt is not an YAML format array`)
-    }
+    const prompts = parse(PromptYaml, jsyaml.load(promptYaml))
 
     // Display the choices at VSCode QuickPick
     const items = prompts.map(p => {
         // p is either a string or an object with {label, description}
         if (typeof p === 'string') {
-            return {label: "", description: p}
+            return parse(Prompt, {label: "", description: p})
         } else {
-            // force convert string
-            if (typeof p.label !== 'string') p.label = p.label?.toString() || ""
-            if (typeof p.description !== 'string') p.description = p.description?.toString() || ""
             return p
         }
     })
@@ -77,21 +71,40 @@ async function selectPromptObj(promptYaml) {
     }
 }
 
+/**
+ * askになっているオプションを選択する
+ * @param { import('./type').PromptType} prompt
+ */
+async function resolvePromptOption(prompt) {
+    let outputType = /** @type {string} */ (prompt.output.type)
+
+    // askの場合quickpickで都度選択
+    if (outputType === 'ask'){
+        const options = ['normal', 'diff', 'append']
+        const selected = await vscode.window.showQuickPick(options)
+        if (!selected) throw new Error('Canceled')
+        outputType = selected
+    }
+
+    return {
+        ...prompt,
+        output: { ...prompt.output,
+            type: /**@type {'normal'|'diff'|'append'} */ (outputType)
+        }
+    }
+}
+
 
 /**
  * @param {string} settingPromptPath
- * @param {string} text
- * @param {string} apiKey
  */
-async function getPrompt(settingPromptPath, apiKey, text) {
+async function getPrompt(settingPromptPath) {
     // Find and open prompt file
     const promptPath = await resolvePromptPath(settingPromptPath)
     const promptYaml = await vscode.workspace.openTextDocument(promptPath).then(doc => doc.getText())
     // Display a UI to select the desired prompt from within the .prompt file for use with QuickPick
     const promptObj = await selectPromptObj(promptYaml)
-
-    const option = validate(PromptOption, promptObj)
-    return {text:promptObj.description, option}
+    return await resolvePromptOption(promptObj)
 }
 
 // promptファイルをエディタ画面で開く
