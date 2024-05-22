@@ -1,0 +1,59 @@
+{
+  "type": "array",
+  "items": {
+    "anyOf": [
+      {
+        "type": "object",
+        "properties": {
+          "label": {
+            "default": "",
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "output": {
+            "type": "object",
+            "properties": {
+              "backup": {
+                "default": false,
+                "type": "boolean"
+              },
+              "type": {
+                "default": "diff",
+                "anyOf": [
+                  {
+                    "const": "normal",
+                    "type": "string"
+                  },
+                  {
+                    "const": "diff",
+                    "type": "string"
+                  },
+                  {
+                    "const": "append",
+                    "type": "string"
+                  },
+                  {
+                    "const": "ask",
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            "default": {}
+          }
+        },
+        "required": [
+          "description"
+        ],
+        "default": {}
+      },
+      {
+        "type": "string"
+      }
+    ],
+    "default": {}
+  },
+  "default": []
+}
