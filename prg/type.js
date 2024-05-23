@@ -4,12 +4,21 @@ const { ValueErrorType } = require('@sinclair/typebox/errors');
 
 /**
  * @typedef {import('@sinclair/typebox/type').TSchema} TSchema
+ * @typedef {import('@sinclair/typebox/type').TProperties} TProperties
  */
 
 /**
  * @template {TSchema} S
  * @typedef {import('@sinclair/typebox').Static<S>} Static
  */
+
+/**
+ * @template {TProperties} P
+ * @param {P} schema
+ */
+function ExactObject(schema, option = {}) {
+  return Type.Object(schema, {...option, additionalProperties: false})
+}
 
 /**
  * Validates the given data and return **type-annotated** object.
@@ -104,10 +113,10 @@ const PromptInputArray = propagateDefaultToParent(
   Type.Array(
     Type.Union([
       // objectかstringのどちらか
-      Type.Object({
+      ExactObject({
         label:       Type.Optional(Type.String({default: ''})),
         description: Type.String(),
-        output:      Type.Optional(Type.Object({
+        output:      Type.Optional(ExactObject({
           backup:      Type.Optional(Type.Boolean({default: false})),
           type:        Type.Optional(Type.Union(OutputTypes, {default: 'diff'})),
         })),
@@ -130,10 +139,10 @@ const PromptArray = (
   Type.Array(
     Type.Union([
       // objectかstringのどちらか
-      Type.Object({
+      ExactObject({
         label:       Type.String(),
         description: Type.String(),
-        output:      Type.Object({
+        output:      ExactObject({
           backup:      Type.Boolean(),
           type:        Type.Union(OutputTypes),
         }),

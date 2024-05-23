@@ -3,6 +3,7 @@
   "items": {
     "anyOf": [
       {
+        "additionalProperties": false,
         "type": "object",
         "properties": {
           "label": {
@@ -13,6 +14,7 @@
             "type": "string"
           },
           "output": {
+            "additionalProperties": false,
             "type": "object",
             "properties": {
               "backup": {
