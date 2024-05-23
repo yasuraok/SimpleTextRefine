@@ -15,7 +15,7 @@ const MODELS = [
     "anthropic/claude-3-opus-20240229",
     "anthropic/claude-3-sonnet-20240229",
     "anthropic/claude-3-haiku-20240307",
-].map(label => ({label, description: ""}))
+]
 
 /**
  * vscode APIの設定を取得する
@@ -30,7 +30,11 @@ function getConfig(keys){
 }
 
 async function changeModel() {
-    const result = await vscode.window.showQuickPick(MODELS);
+    const list = MODELS.map(model => ({
+        label: model,
+        description: model === getConfigValue('model') ? '(current)' : ''
+    }))
+    const result = await vscode.window.showQuickPick(list);
     if (result) {
         // vscodeの設定にmodelを保存する
         const config = vscode.workspace.getConfiguration(EXT_NAME)
