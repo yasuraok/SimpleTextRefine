@@ -104,8 +104,6 @@ async function prepareResultFile(uri, backup) {
     return [llmUri, llmFile]
 }
 
-function __throw(e){ throw e }
-
 /**
  * LLM書き込み先のファイルをEditorで開きつつ、LLM応答を書き込む関数を返す
  * @param {vscode.TextEditor} editor
@@ -143,39 +141,49 @@ async function prepareResultWriter(editor, outputOpt, selectedText, wholeText) {
         case 'append': {
             // もとのファイルの選択範囲直後にLLM応答をappendする
             // 編集中のファイルなのでwriteFileではなくeditor.editを駆使して何とかする
-            // LLM応答中に人間が編集できないようにreadonlyにするが、editor.editも効かなくなってしまうので、瞬間的に解除する
-            // 隙間のタイミングで一瞬だけ編集できた場合にPositionがズレるので、ファイル全体を置換し続ける
+            // LLM応答中に人間が編集してもLLM応答を書き込んでいる範囲を追跡して、正しく追記できるようにする
 
-            // 人間が編集しない前提なら、以下のようなコードで変更部分だけを差し替えていくことが可能
-            // const prevRange = new vscode.Range(llmStartPos, prevEndPos)
-            // await editor.edit(editBuilder => {
-            //     editBuilder.replace(prevRange, llmText)
-            // })
-            // const splitText = llmText.split('\n')
-            // prevEndPos = llmStartPos.translate({
-            //     lineDelta: splitText.length - 1,
-            //     characterDelta: 0
-            // })
+            // LLM応答の書き込み位置 (ファイル先頭からの文字数) = 選択範囲の最後
+            let llmStartOffset = editor.document.offsetAt(editor.selection.end)
+            let llmEndOffset = llmStartOffset
 
-            await vscode.commands.executeCommand('workbench.action.files.setActiveEditorReadonlyInSession')
-            const s = new vscode.Position(0, 0)
-            const e = getEditorEndPos(editor)
-            const beforeText = editor.document.getText(new vscode.Range(s, editor.selection.end))
-            const afterText  = editor.document.getText(new vscode.Range(editor.selection.end, e))
+            // 人間の編集を検知してllmStart/EndOffsetを動かすイベンドハンドラを登録
+            const handler = vscode.workspace.onDidChangeTextDocument((event) => {
+                if (event.document != editor.document) return;
 
-            const writer = async (llmText, finished) => {
-                await vscode.commands.executeCommand('workbench.action.files.resetActiveEditorReadonlyInSession')
-                await editor.edit(editBuilder => {
-                    const s = new vscode.Position(0, 0)
-                    const e = getEditorEndPos(editor)
-                    if (! beforeText && ! afterText) {
+                for (const change of event.contentChanges) {
+                    const diff = change.text.length - change.rangeLength
+
+                    if (change.rangeOffset < llmStartOffset) {
+                        // llmText部分を巻き込んで削除した場合、その分を補正する
+                        const deletedLlmTextLen = Math.max(change.rangeOffset + change.rangeLength - llmStartOffset, 0)
+                        llmStartOffset += diff + deletedLlmTextLen
                     }
-                    editBuilder.replace(new vscode.Range(s, e), beforeText + llmText + afterText)
-                })
-                if (! finished) {
-                    await vscode.commands.executeCommand('workbench.action.files.setActiveEditorReadonlyInSession')
+
+                    if (change.rangeOffset < llmEndOffset) {
+                        // llmText部分を巻き込んで削除した場合、その分を補正する
+                        const deletedUserTextLen = Math.max(change.rangeOffset + change.rangeLength - llmEndOffset, 0)
+                        llmEndOffset += diff + deletedUserTextLen
+                    }
                 }
+            })
+
+            // LLM応答を書き込む関数を作る
+            const writer = async (llmText, last = false) => {
+                // LLMテキストを更新。この操作でもイベントハンドラが呼ばれるが、if文に入らずoffsetは更新されない
+                await editor.edit(editBuilder => {
+                    const start = editor.document.positionAt(llmStartOffset)
+                    const end   = editor.document.positionAt(llmEndOffset)
+                    editBuilder.replace(new vscode.Range(start, end), llmText)
+                })
+
+                // LLMテキストが挿入されたので、その分だけEndOffsetを更新
+                llmEndOffset = llmStartOffset + llmText.length
+
+                // イベントハンドラを解除
+                if (last) handler.dispose()
             }
+
             return writer
         }
     }
