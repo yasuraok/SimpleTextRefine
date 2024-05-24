@@ -5,6 +5,8 @@ OpenAI GPT と Anthropic Claude 3 に対応している。
 ![screenshot](assets/screenshot.png)
 
 # 使い方
+簡易な使い方は[クイックスタート](quickstart.md)を参照。
+
 ## 基本的な使い方
 1. (初回のみ) 各サービスの API Key を設定する。設定画面を開き (Ctrl + ,)、simple-text-refine で絞り込むと、以下の2つの設定項目があるので、必要に応じて入力する。(注意: API Keyを設定に記録するのは最善でない。将来的に改善予定)
    - simple-text-refine.api_key_openai
