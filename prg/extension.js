@@ -105,87 +105,104 @@ async function prepareResultFile(uri, backup) {
 }
 
 /**
+ * LLM応答を別ファイルに書き込み、vscode.diffで表示する。現時点ではleft -> right方向だけdiffを適用できるので、LLM応答をleftに表示する
+ * diffとして見えるように、元ファイルの選択範囲をLLM応答で置き換える形をとる
+ * @param {vscode.TextEditor} editor
+ * @param {boolean} backup
+ * @param {string} selectedText
+ * @param {string} wholeText
+ */
+async function prepareDiffWriter(editor, backup, selectedText, wholeText) {
+    const uri = editor.document.uri
+    const [llmUri, llmFile] = await prepareResultFile(uri, backup)
+    const writer = async (llmText) => {
+        const gptWholeText = wholeText.replace(selectedText, llmText)
+        await vscode.workspace.fs.writeFile(llmFile, Buffer.from(gptWholeText))
+    }
+    await writer('')
+    await vscode.commands.executeCommand('vscode.diff', llmUri, uri)
+    return writer
+}
+
+/**
+ * LLM応答を別ファイルに書き込み、通常のエディタ画面で表示する。diffに合わせて、左側に表示する
+ * @param {vscode.TextEditor} editor
+ * @param {boolean} backup
+ */
+async function prepareNormalWriter(editor, backup) {
+    const uri = editor.document.uri
+    const [llmUri, llmFile] = await prepareResultFile(uri, backup)
+    const writer = async (llmText) => {
+        await vscode.workspace.fs.writeFile(llmFile, Buffer.from(llmText))
+    }
+    await writer('')
+    await showBothCurrentAndNewFile(llmUri, 'Left')
+    return writer
+}
+
+/**
+ * もとのファイルの選択範囲直後にLLM応答をappendする
+ * 編集中のファイルなのでwriteFileではなくeditor.editを駆使して何とかする
+ * LLM応答中に人間が編集してもLLM応答を書き込んでいる範囲を追跡して、正しく追記できるようにする
+ * @param {vscode.TextEditor} editor
+ */
+async function prepareAppendWriter(editor) {
+    // LLM応答の書き込み位置 (ファイル先頭からの文字数) を追従させる。初期値は選択範囲の最後
+    let llmStartOffset = editor.document.offsetAt(editor.selection.end)
+    let llmEndOffset = llmStartOffset
+
+    // 人間の編集を検知してllmStart/EndOffsetを動かすイベンドハンドラを登録
+    const handler = vscode.workspace.onDidChangeTextDocument((event) => {
+        if (event.document != editor.document) return;
+
+        for (const change of event.contentChanges) {
+            const diff = change.text.length - change.rangeLength
+
+            if (change.rangeOffset < llmStartOffset) {
+                // llmText部分を巻き込んで削除した場合、その分を補正する
+                const deletedLlmTextLen = Math.max(change.rangeOffset + change.rangeLength - llmStartOffset, 0)
+                llmStartOffset += diff + deletedLlmTextLen
+            }
+
+            if (change.rangeOffset < llmEndOffset) {
+                // llmText部分を巻き込んで削除した場合、その分を補正する
+                const deletedUserTextLen = Math.max(change.rangeOffset + change.rangeLength - llmEndOffset, 0)
+                llmEndOffset += diff + deletedUserTextLen
+            }
+        }
+    })
+
+    // LLM応答を書き込む関数を作る
+    const writer = async (llmText, last = false) => {
+        // LLMテキストを更新。この操作でもイベントハンドラが呼ばれるが、if文に入らずoffsetは更新されない
+        await editor.edit(editBuilder => {
+            const start = editor.document.positionAt(llmStartOffset)
+            const end   = editor.document.positionAt(llmEndOffset)
+            editBuilder.replace(new vscode.Range(start, end), llmText)
+        })
+
+        // LLMテキストが挿入されたので、その分だけEndOffsetを更新
+        llmEndOffset = llmStartOffset + llmText.length
+
+        // イベントハンドラを解除
+        if (last) handler.dispose()
+    }
+
+    return writer
+}
+
+/**
  * LLM書き込み先のファイルをEditorで開きつつ、LLM応答を書き込む関数を返す
  * @param {vscode.TextEditor} editor
  * @param {{backup: boolean, type: 'normal'|'diff'|'append'}} outputOpt
  * @param {string} selectedText
  * @param {string} wholeText
- * @returns
  */
 async function prepareResultWriter(editor, outputOpt, selectedText, wholeText) {
-    const uri = editor.document.uri
-
     switch (outputOpt.type) {
-        case 'diff': {
-            // そのファイルをvscode.diffで表示する。現時点ではleft -> right方向だけdiffを適用できるので、LLM応答をleftに表示する
-            // diffとして見えるように、元ファイルの選択範囲をLLM応答で置き換える形をとる
-            const [llmUri, llmFile] = await prepareResultFile(uri, outputOpt.backup)
-            const writer = async (llmText) => {
-                const gptWholeText = wholeText.replace(selectedText, llmText)
-                await vscode.workspace.fs.writeFile(llmFile, Buffer.from(gptWholeText))
-            }
-            await writer('')
-            await vscode.commands.executeCommand('vscode.diff', llmUri, uri)
-            return writer
-        }
-        case 'normal': {
-            // そのファイルを通常のエディタ画面で開く
-            const [llmUri, llmFile] = await prepareResultFile(uri, outputOpt.backup)
-            const writer = async (llmText) => {
-                await vscode.workspace.fs.writeFile(llmFile, Buffer.from(llmText))
-            }
-            await writer('')
-            await showBothCurrentAndNewFile(llmUri, 'Left')
-            return writer
-        }
-        case 'append': {
-            // もとのファイルの選択範囲直後にLLM応答をappendする
-            // 編集中のファイルなのでwriteFileではなくeditor.editを駆使して何とかする
-            // LLM応答中に人間が編集してもLLM応答を書き込んでいる範囲を追跡して、正しく追記できるようにする
-
-            // LLM応答の書き込み位置 (ファイル先頭からの文字数) = 選択範囲の最後
-            let llmStartOffset = editor.document.offsetAt(editor.selection.end)
-            let llmEndOffset = llmStartOffset
-
-            // 人間の編集を検知してllmStart/EndOffsetを動かすイベンドハンドラを登録
-            const handler = vscode.workspace.onDidChangeTextDocument((event) => {
-                if (event.document != editor.document) return;
-
-                for (const change of event.contentChanges) {
-                    const diff = change.text.length - change.rangeLength
-
-                    if (change.rangeOffset < llmStartOffset) {
-                        // llmText部分を巻き込んで削除した場合、その分を補正する
-                        const deletedLlmTextLen = Math.max(change.rangeOffset + change.rangeLength - llmStartOffset, 0)
-                        llmStartOffset += diff + deletedLlmTextLen
-                    }
-
-                    if (change.rangeOffset < llmEndOffset) {
-                        // llmText部分を巻き込んで削除した場合、その分を補正する
-                        const deletedUserTextLen = Math.max(change.rangeOffset + change.rangeLength - llmEndOffset, 0)
-                        llmEndOffset += diff + deletedUserTextLen
-                    }
-                }
-            })
-
-            // LLM応答を書き込む関数を作る
-            const writer = async (llmText, last = false) => {
-                // LLMテキストを更新。この操作でもイベントハンドラが呼ばれるが、if文に入らずoffsetは更新されない
-                await editor.edit(editBuilder => {
-                    const start = editor.document.positionAt(llmStartOffset)
-                    const end   = editor.document.positionAt(llmEndOffset)
-                    editBuilder.replace(new vscode.Range(start, end), llmText)
-                })
-
-                // LLMテキストが挿入されたので、その分だけEndOffsetを更新
-                llmEndOffset = llmStartOffset + llmText.length
-
-                // イベントハンドラを解除
-                if (last) handler.dispose()
-            }
-
-            return writer
-        }
+        case 'diff':   return await prepareDiffWriter(editor, outputOpt.backup, selectedText, wholeText)
+        case 'normal': return await prepareNormalWriter(editor, outputOpt.backup)
+        case 'append': return await prepareAppendWriter(editor)
     }
 }
 
