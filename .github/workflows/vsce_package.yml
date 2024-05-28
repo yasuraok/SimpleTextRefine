@@ -3,14 +3,22 @@ name: make vsce package
 env:
   name: simple-text-refine
 
-on: [push, workflow_dispatch]
+on:
+  push:
+    branches: "*"
+  workflow_dispatch:
+    inputs:
+      publish:
+        type: boolean
+        required: true
+        default: false
 
 jobs:
   make-vsce:
     runs-on: ubuntu-latest
     env:
       VERSION: ''
-      ARTIFACT_SUFFIX: ''
+      PACKAGE_NAME: ''
     steps:
       - uses: actions/checkout@v4
 
@@ -28,29 +36,39 @@ jobs:
         if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/dev'
         run: |
           sed -i -e 's/"version": "\(.*\)"/"version": "\1+${{ github.sha }}"/' package.json
-          npx vsce package --pre-release -o ${{ env.name }}-${{ env.VERSION }}+${{ github.sha }}.vsix
+          PACKAGE_NAME=${{ env.name }}-${{ env.VERSION }}+${{ github.sha }}
+          npx vsce package --pre-release -o "${PACKAGE_NAME}.vsix"
 
-          echo "ARTIFACT_SUFFIX=${{ env.VERSION }}+${{ github.sha }}" >> $GITHUB_ENV
+          echo "PACKAGE_NAME=${PACKAGE_NAME}" >> $GITHUB_ENV
 
       # devブランチ場合は、versionはそのままでpre-releaseだけつける
       # https://code.visualstudio.com/api/working-with-extensions/publishing-extension#prerelease-extensions
       - name: Build dev (pre-release)
         if: github.ref == 'refs/heads/dev'
         run: |
-          npx vsce package --pre-release -o ${{ env.name }}-${{ env.VERSION }}+pre-release.vsix
+          PACKAGE_NAME=${{ env.name }}-${{ env.VERSION }}+pre-release
+          npx vsce package --pre-release -o "${PACKAGE_NAME}.vsix"
 
-          echo "ARTIFACT_SUFFIX=${{ env.VERSION }}+pre-release" >> $GITHUB_ENV
+          echo "PACKAGE_NAME=${PACKAGE_NAME}" >> $GITHUB_ENV
 
       # mainブランチ場合は、そのままpackage
       - name: Build main
         if: github.ref == 'refs/heads/main'
         run: |
-          npx vsce package -o ${{ env.name }}-${{ env.VERSION }}.vsix
+          PACKAGE_NAME=${{ env.name }}-${{ env.VERSION }}+pre-release
+          npx vsce package               -o "${PACKAGE_NAME}.vsix"
 
-          echo "ARTIFACT_SUFFIX=${{ env.VERSION }}" >> $GITHUB_ENV
+          echo "PACKAGE_NAME=${PACKAGE_NAME}" >> $GITHUB_ENV
+
+      - name: Publish
+        if: inputs.publish
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          npx vsce publish --packagePath "${{ env.PACKAGE_NAME }}.vsix"
 
       # 保存 (VSCode market placeに自動アップロードはいったんしない)
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.name }}-${{ env.ARTIFACT_SUFFIX }}
-          path: "*.vsix"
+          name: "${{ env.PACKAGE_NAME }}"
+          path: "${{ env.PACKAGE_NAME }}.vsix"
