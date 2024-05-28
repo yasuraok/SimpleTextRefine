@@ -26,23 +26,30 @@ const TEMPLATE = `
     type: append
 `.trimStart()
 
-// デフォルトプロンプトのパスを返す。具体的にはworkspace直下の.vscode/simple-text-refine/.prompt,
-function getDefaultPromptPath() {
-    const wf = vscode.workspace.workspaceFolders
-    if (!wf || !wf.length) return null
-    return vscode.Uri.joinPath(wf[0].uri, '.vscode', EXT_NAME, '.prompt')
+const PROMPT_PTAH_NOT_CONFIGURED = 'workspace is unselected and the default prompt path is not configured.'
+
+/**
+ * プロンプトのパスを取得する。
+ * @returns {vscode.Uri | null}
+ */
+function resolvePromptPath(configPath) {
+    if (configPath){
+        // configで指定があればそれを取得
+        return vscode.Uri.file(configPath)
+
+    } else {
+        // デフォルトプロンプトのパスを返す。具体的にはworkspace直下の.vscode/simple-text-refine/.prompt,
+        const wf = vscode.workspace.workspaceFolders
+        if (!wf || !wf.length) return null
+        return vscode.Uri.joinPath(wf[0].uri, '.vscode', EXT_NAME, '.prompt')
+    }
 }
 
-// プロンプトのパスを取得する。指定されたパスが存在しない場合は作成を促す
-async function resolvePromptPath(configPath) {
-    // configで指定があればそれを、そうでなければdefaultを取得
-    const requestedPath = configPath ? vscode.Uri.file(configPath) : getDefaultPromptPath()
-
-    if (! requestedPath) {
-        // promptファイルのpath自体が決定不能
-        throw new Error('Failed to open prompt file: workspace is not selected.')
-    }
-
+/**
+ * 指定されたパスにプロンプトが存在しない場合は作成を促す
+ * @param {vscode.Uri} requestedPath
+ */
+async function verifyPromptFileExists(requestedPath) {
     if (! await exists(requestedPath)) {
         // promptファイルが無い: 通知しつつ作成を促す
         const selection = await vscode.window.showErrorMessage(`Prompt not found [${requestedPath}]`, 'Create')
@@ -50,10 +57,10 @@ async function resolvePromptPath(configPath) {
             await vscode.workspace.fs.writeFile(requestedPath, Buffer.from(TEMPLATE))
             await showBothCurrentAndNewFile(requestedPath, 'Above', false)
         }
+
         // promptを開いたかどうかに関わらずその後の処理は中止 (通知は済んでるのでnotificationなし)
         throw new Error('Canceled')
     }
-
     return requestedPath
 }
 
@@ -104,19 +111,31 @@ async function resolvePromptOption(prompt) {
 
 /**
  * @param {string} settingPromptPath
+ * @return {Promise<{description: string, output: {backup: boolean, type: 'normal'|'diff'|'append'}}>}
  */
 async function getPrompt(settingPromptPath) {
     // Find and open prompt file
     const promptPath = await resolvePromptPath(settingPromptPath)
-    const promptYaml = await vscode.workspace.openTextDocument(promptPath).then(doc => doc.getText())
-    // Display a UI to select the desired prompt from within the .prompt file for use with QuickPick
-    const promptObj = await selectPromptObj(promptYaml)
-    return await resolvePromptOption(promptObj)
+
+    if (promptPath) {
+        const promptYaml = await vscode.workspace.openTextDocument(promptPath).then(doc => doc.getText())
+        // Display a UI to select the desired prompt from within the .prompt file for use with QuickPick
+        const promptObj = await selectPromptObj(promptYaml)
+        return await resolvePromptOption(promptObj)
+
+    } else {
+        // prompt fileのパスが定まらない → 最もデフォルトで動作させようとした場合の設定で続行
+        vscode.window.showWarningMessage(`No system prompt was passed: ${PROMPT_PTAH_NOT_CONFIGURED}`)
+        return { description: '', output: { type: 'append', backup: false } }
+    }
 }
 
 // promptファイルをエディタ画面で開く
 async function openPromptFile(config) {
     const promptPath = await resolvePromptPath(config.prompt_path)
+    if(!promptPath) {
+        throw new Error(`Failed to open prompt file: ${PROMPT_PTAH_NOT_CONFIGURED}`)
+    }
     await showBothCurrentAndNewFile(promptPath, 'Above', false)
 }
 
