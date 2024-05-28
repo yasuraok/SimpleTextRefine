@@ -182,7 +182,9 @@ async function prepareAppendWriter(editor) {
         })
 
         // LLMテキストが挿入されたので、その分だけEndOffsetを更新
-        llmEndOffset = llmStartOffset + llmText.length
+        const crlf = editor.document.eol === vscode.EndOfLine.CRLF
+        const length = crlf ? llmText.replace(/\n/g, '\r\n').length : llmText.length
+        llmEndOffset = llmStartOffset + length
 
         // イベントハンドラを解除
         if (last) handler.dispose()
