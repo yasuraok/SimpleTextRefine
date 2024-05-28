@@ -3,7 +3,15 @@ name: make vsce package
 env:
   name: simple-text-refine
 
-on: [push, workflow_dispatch]
+on:
+  push:
+    branches: "*"
+  workflow_dispatch:
+    inputs:
+      publish:
+        type: boolean
+        required: true
+        default: false
 
 jobs:
   make-vsce:
@@ -48,6 +56,13 @@ jobs:
           npx vsce package -o ${{ env.name }}-${{ env.VERSION }}.vsix
 
           echo "ARTIFACT_SUFFIX=${{ env.VERSION }}" >> $GITHUB_ENV
+
+      - name: Publish
+        if: inputs.publish
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          npx vsce publish
 
       # 保存 (VSCode market placeに自動アップロードはいったんしない)
       - uses: actions/upload-artifact@v4
