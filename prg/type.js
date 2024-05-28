@@ -1,6 +1,7 @@
 const { Type } = require('@sinclair/typebox');
 const { Value } = require('@sinclair/typebox/value');
 const { ValueErrorType } = require('@sinclair/typebox/errors');
+const { TypeGuard } = require('@sinclair/typebox/type');
 
 /**
  * @typedef {import('@sinclair/typebox/type').TSchema} TSchema
@@ -14,10 +15,10 @@ const { ValueErrorType } = require('@sinclair/typebox/errors');
 
 /**
  * @template {TProperties} P
- * @param {P} schema
+ * @param {P} props
  */
-function ExactObject(schema, option = {}) {
-  return Type.Object(schema, {...option, additionalProperties: false})
+function ExactObject(props, option = {}) {
+  return Type.Object(props, {...option, additionalProperties: false})
 }
 
 /**
@@ -28,11 +29,7 @@ function ExactObject(schema, option = {}) {
  * @return {Static<S>}
  */
 function parse(schema, data) {
-  if (schema.defaultSchema != null) {
-    data = Value.Default(schema.defaultSchema, Value.Clone(data)) // default埋め専用のスキーマを使う
-  } else if (schema.default != null) {
-    data = Value.Default(schema,               Value.Clone(data))
-  }
+  data = Value.Default(schema, Value.Clone(data))
 
   function recursive(schema, data) {
     // Type.Unionはどの配下でもパースできなかった場合に 'expected union value' しか返してくれない
@@ -58,7 +55,7 @@ function parse(schema, data) {
 }
 
 /**
- * nested objectの下にdefaultがある場合に、そのdefaultを上に伝播させる
+ * nested objectの下にdefaultがある場合に、そのdefaultを上に伝播させる (スキーマ定義の記載シンプル化)
  * @template {TSchema} S
  * @param {S} schema
  */
@@ -93,6 +90,39 @@ function propagateDefaultToParent(schema){
 }
 
 /**
+ * default指定のあるスキーマをOptional扱いにする。以下のような目的:
+ * - コード内では必ずValue.Defaultを通して使うので、Requiredでスキーマを定義
+ * - 設定ファイルとしてはdefault付きキーを記載不要 (= Optional) とし、そのようなJSONSchemaを出力
+ * ちなみにdefault有無にかかわらずdeepPartialするものは試作があるらしい: https://github.com/sinclairzx81/typebox/blob/master/example/prototypes/partial-deep.ts
+ * @template {TSchema} S
+ * @param {S} schema
+ * @return {TSchema} // FIXME 型推論できる書き方にしてない (すぐtoJSONSchemaに渡すので問題ないという考え)
+ */
+function defaultOptional(schema){
+  schema = Value.Clone(schema) // deep cloneを再帰しているので無駄が多いが…
+
+  if (TypeGuard.IsObject(schema)) {
+    const entries = Object.entries(schema.properties)
+      .map(([key, prop]) => [key, defaultOptional(prop)])
+    schema.properties = Object.fromEntries(entries)
+
+    const options = entries
+      .filter(([key, prop]) => (TypeGuard.IsSchema(prop) && prop.default != null))
+      .map(([key, prop]) => key)
+    const required = schema.required?.filter(key => !options.includes(key))
+    schema.required = required?.length ? required : undefined
+
+  } else if (TypeGuard.IsArray(schema)) {
+    schema.items = defaultOptional(schema.items)
+
+  } else if (TypeGuard.IsUnion(schema)) {
+    schema.anyOf = schema.anyOf.map(defaultOptional)
+  }
+
+  return schema
+}
+
+/**
  * JSON Schemaの形式で出力する
  */
 function toJSONSchema(schema){
@@ -108,43 +138,16 @@ const OutputTypes = [
   Type.Literal('ask')
 ]
 
-// yaml schemaとしてはdefaultがあるものはoptionalで定義して書かなくても良いようにしておく (代わりに必ずdefaultを付ける)
-const PromptInputArray = propagateDefaultToParent(
+const PromptArray = propagateDefaultToParent(
   Type.Array(
     Type.Union([
       // objectかstringのどちらか
       ExactObject({
-        label:       Type.Optional(Type.String({default: ''})),
-        description: Type.String(),
-        output:      Type.Optional(ExactObject({
-          backup:      Type.Optional(Type.Boolean({default: false})),
-          type:        Type.Optional(Type.Union(OutputTypes, {default: 'diff'})),
-        })),
-      }),
-
-      // リスト直下に文字列がある場合もOKとする (実装側でdescriptionに埋め直す)
-      Type.String(),
-    ])
-  )
-)
-const PromptInput = PromptInputArray.items.anyOf[0]
-/** @typedef {Static<typeof PromptInputArray>}                PromptInputArrayType */
-/** @typedef {Static<typeof PromptInputArray.items.anyOf[0]>} PromptInputType */
-
-// プログラム内では必ずValue.Defaultを通した後の状態で使うので、optionalを外した型も定義する
-// 再帰的にRequiredを付ける実装はまだないので、今時点では2重管理する。optional型でValue.Defaultを通して、Required型でErrorチェックするので、型が合わない場合はエラーになる
-// Partialの方はdeepPartialの試作があるらしい: https://github.com/sinclairzx81/typebox/blob/master/example/prototypes/partial-deep.ts
-// ちなみにzodではdeepPartialがあるがdeepRequiredがまだないらしい → なくなるらしい…: https://github.com/colinhacks/zod/issues/2854
-const PromptArray = (
-  Type.Array(
-    Type.Union([
-      // objectかstringのどちらか
-      ExactObject({
-        label:       Type.String(),
+        label:       Type.String({default: ''}),
         description: Type.String(),
         output:      ExactObject({
-          backup:      Type.Boolean(),
-          type:        Type.Union(OutputTypes),
+          backup:      Type.Boolean({default: false}),
+          type:        Type.Union(OutputTypes, {default: 'diff'}),
         }),
       }),
 
@@ -157,18 +160,16 @@ const Prompt = PromptArray.items.anyOf[0]
 /** @typedef {Static<typeof PromptArray>}                PromptArrayType */
 /** @typedef {Static<typeof PromptArray.items.anyOf[0]>} PromptType */
 
-// Value.Default用のスキーマと関連付ける
-PromptArray.defaultSchema = PromptInputArray
-Prompt.defaultSchema = PromptInput
-
 module.exports = {
   Type, parse, Prompt, PromptArray
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-// console.log(toJSONSchema(PromptInputArray))
+// JSONSchemaの出力は↓
+// console.log(toJSONSchema(defaultOptional(PromptArray)))
 
+// // テスト
 // console.log(parse(PromptArray, [
 //   'pass', // ただの文字列はOK
 //   {description: 'test'}, // default未設定のdescriptionされあれば後はdefaultが適用されてOK
