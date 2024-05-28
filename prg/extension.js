@@ -249,9 +249,9 @@ async function callGPTAndOpenDiff(textEditor, textEditorEdit) {
             if (aborted) throw new Error('Canceled')
             gptText += delta
 
-            // 直近50文字だけ表示する
+            // ステータスバーには直近50文字だけ表示する
             const statusText = gptText.slice(-50).replace(/\n/g, ' ')
-            progress.report({ message: statusText });
+            vscode.window.setStatusBarMessage(statusText, 5000)
 
             // 2秒経過した場合に限りエディタ内も更新
             if (lastUpdated === null || Date.now() - lastUpdated > 2000) {
