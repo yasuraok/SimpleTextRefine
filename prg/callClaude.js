@@ -15,15 +15,13 @@ function makeUserMsg(text) {
 async function callClaudeStream(text, systemPrompt, apiKey, model, callback) {
     const anthropic = new Anthropic({apiKey})
 
-    vscode.window.showInformationMessage(`calling ${model}...: ${systemPrompt}`)
-
     const stream = await anthropic.messages.stream({
         model,
         system: systemPrompt,
         messages: [makeUserMsg(text)],
         max_tokens: MAX_TOKENS,
-    }).on('text', (text) => {
-        callback(text) // コールバックで通知
+    }).on('text', async (text) => {
+        await callback(text) // コールバックで通知
     })
     const message = await stream.finalMessage()
 

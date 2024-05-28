@@ -23,8 +23,6 @@ async function callGPTStream(text, systemPrompt, apiKey, model, callback) {
 
     const messages = [makeSystemMsg(systemPrompt), makeUserMsg(text)]
 
-    vscode.window.showInformationMessage(`calling ${model}...: ${systemPrompt}`)
-
     const responses = await openai.chat.completions.create({
         model,
         messages,
@@ -37,7 +35,7 @@ async function callGPTStream(text, systemPrompt, apiKey, model, callback) {
         const delta = response.choices[0].delta;
         if (delta.content) {
             content += delta.content;
-            callback(delta.content) // コールバックで通知
+            await callback(delta.content) // コールバックで通知
         } else {
             // 終わり
         }

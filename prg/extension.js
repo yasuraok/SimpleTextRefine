@@ -1,5 +1,6 @@
 const vscode = require('vscode')
-const { selectPrompt, openPromptFile } = require('./prompt')
+const { exists, modifiedDate, executeCommandToEditor, showBothCurrentAndNewFile, getEditorEndPos } = require('./common')
+const { getPrompt, openPromptFile } = require('./prompt')
 const { callGPTStream } = require('./callGPT')
 const { callClaudeStream } = require('./callClaude')
 
@@ -14,9 +15,12 @@ const MODELS = [
     "anthropic/claude-3-opus-20240229",
     "anthropic/claude-3-sonnet-20240229",
     "anthropic/claude-3-haiku-20240307",
-].map(label => ({label, description: ""}))
+]
 
-// vscode APIの設定を取得する
+/**
+ * vscode APIの設定を取得する
+ * @param {string} key
+ */
 function getConfigValue(key) {
     return vscode.workspace.getConfiguration(EXT_NAME).get(key)
 }
@@ -26,7 +30,11 @@ function getConfig(keys){
 }
 
 async function changeModel() {
-    const result = await vscode.window.showQuickPick(MODELS);
+    const list = MODELS.map(model => ({
+        label: model,
+        description: model === getConfigValue('model') ? '(current)' : ''
+    }))
+    const result = await vscode.window.showQuickPick(list);
     if (result) {
         // vscodeの設定にmodelを保存する
         const config = vscode.workspace.getConfiguration(EXT_NAME)
@@ -50,15 +58,17 @@ async function setupParam(uri){
         })
     }
 
-    // promptFileの取得 → promptの選択
-    const promptText = await selectPrompt(getConfig(['prompt_path']))
+    /** @type string */ // prompt_pathの取得
+    const settingPromptPath = getConfigValue('prompt_path')
 
-    return {promptText, apiKey, model, provider}
+    return {settingPromptPath, apiKey, model, provider}
 }
 
 function makeCachePath(uri){
     const wf = vscode.workspace.workspaceFolders
-    if(!wf) return null
+    if(!wf){
+        throw new Error('Error: workspace is not selected.')
+    }
     const relPath = vscode.workspace.asRelativePath(uri)
     const cachePath = vscode.Uri.joinPath(wf[0].uri, '.vscode', EXT_NAME, 'cache', relPath)
     // mkdir
@@ -74,27 +84,140 @@ async function openDiff(textEditor, textEditorEdit){
     await vscode.commands.executeCommand('vscode.diff', newUri, textEditor.document.uri)
 }
 
-async function showGPTResult(gptText, uri, selectedText, wholeText, openDiff) {
-    // 選択範囲をGPT応答に差し替えて、*.gptという名前のファイルに書き込む
-    const newUri = makeCachePath(uri)
-    if(!newUri) return
+/**
+ * @param {vscode.Uri} uri
+ * @param {boolean} backup
+ */
+async function prepareResultFile(uri, backup) {
+    const llmUri = makeCachePath(uri)
 
-    const newFile = vscode.Uri.file(newUri.path)
-    const gptWholeText = wholeText.replace(selectedText, gptText)
-    await vscode.workspace.fs.writeFile(newFile, Buffer.from(gptWholeText))
-
-    // そのファイルをvscode.diffで表示する。現時点ではleft -> right方向だけdiffを適用できるので、LLM応答をleftに表示する
-    if (openDiff){
-        await vscode.commands.executeCommand('vscode.diff', newUri, uri)
+    if (backup && await exists(llmUri)) {
+        // {llmUrl}.{modified time} にバックアップを取る
+        const dateStr = await modifiedDate(llmUri)
+        const backupUri = vscode.Uri.file(`${llmUri.path}.${dateStr}`)
+        // renameだと既にエディタで開いている場合に追従してくる。それよりも最新ファイルを表示し続ける方が良いはずなので、copy
+        await vscode.workspace.fs.copy(llmUri, backupUri, { overwrite: true })
     }
+
+    const llmFile = vscode.Uri.file(llmUri.path)
+
+    return [llmUri, llmFile]
 }
 
+/**
+ * LLM応答を別ファイルに書き込み、vscode.diffで表示する。現時点ではleft -> right方向だけdiffを適用できるので、LLM応答をleftに表示する
+ * diffとして見えるように、元ファイルの選択範囲をLLM応答で置き換える形をとる
+ * @param {vscode.TextEditor} editor
+ * @param {boolean} backup
+ * @param {string} selectedText
+ * @param {string} wholeText
+ */
+async function prepareDiffWriter(editor, backup, selectedText, wholeText) {
+    const uri = editor.document.uri
+    const [llmUri, llmFile] = await prepareResultFile(uri, backup)
+    const writer = async (llmText) => {
+        const gptWholeText = wholeText.replace(selectedText, llmText)
+        await vscode.workspace.fs.writeFile(llmFile, Buffer.from(gptWholeText))
+    }
+    await writer('')
+    await vscode.commands.executeCommand('vscode.diff', llmUri, uri)
+    return writer
+}
+
+/**
+ * LLM応答を別ファイルに書き込み、通常のエディタ画面で表示する。diffに合わせて、左側に表示する
+ * @param {vscode.TextEditor} editor
+ * @param {boolean} backup
+ */
+async function prepareNormalWriter(editor, backup) {
+    const uri = editor.document.uri
+    const [llmUri, llmFile] = await prepareResultFile(uri, backup)
+    const writer = async (llmText) => {
+        await vscode.workspace.fs.writeFile(llmFile, Buffer.from(llmText))
+    }
+    await writer('')
+    await showBothCurrentAndNewFile(llmUri, 'Left')
+    return writer
+}
+
+/**
+ * もとのファイルの選択範囲直後にLLM応答をappendする
+ * 編集中のファイルなのでwriteFileではなくeditor.editを駆使して何とかする
+ * LLM応答中に人間が編集してもLLM応答を書き込んでいる範囲を追跡して、正しく追記できるようにする
+ * @param {vscode.TextEditor} editor
+ */
+async function prepareAppendWriter(editor) {
+    // LLM応答の書き込み位置 (ファイル先頭からの文字数) を追従させる。初期値は選択範囲の最後
+    let llmStartOffset = editor.document.offsetAt(editor.selection.end)
+    let llmEndOffset = llmStartOffset
+
+    // 人間の編集を検知してllmStart/EndOffsetを動かすイベンドハンドラを登録
+    const handler = vscode.workspace.onDidChangeTextDocument((event) => {
+        if (event.document != editor.document) return;
+
+        for (const change of event.contentChanges) {
+            const diff = change.text.length - change.rangeLength
+
+            if (change.rangeOffset < llmStartOffset) {
+                // llmText部分を巻き込んで削除した場合、その分を補正する
+                const deletedLlmTextLen = Math.max(change.rangeOffset + change.rangeLength - llmStartOffset, 0)
+                llmStartOffset += diff + deletedLlmTextLen
+            }
+
+            if (change.rangeOffset < llmEndOffset) {
+                // llmText部分を巻き込んで削除した場合、その分を補正する
+                const deletedUserTextLen = Math.max(change.rangeOffset + change.rangeLength - llmEndOffset, 0)
+                llmEndOffset += diff + deletedUserTextLen
+            }
+        }
+    })
+
+    // LLM応答を書き込む関数を作る
+    const writer = async (llmText, last = false) => {
+        // LLMテキストを更新。この操作でもイベントハンドラが呼ばれるが、if文に入らずoffsetは更新されない
+        await editor.edit(editBuilder => {
+            const start = editor.document.positionAt(llmStartOffset)
+            const end   = editor.document.positionAt(llmEndOffset)
+            editBuilder.replace(new vscode.Range(start, end), llmText)
+        })
+
+        // LLMテキストが挿入されたので、その分だけEndOffsetを更新
+        const crlf = editor.document.eol === vscode.EndOfLine.CRLF
+        const length = crlf ? llmText.replace(/\n/g, '\r\n').length : llmText.length
+        llmEndOffset = llmStartOffset + length
+
+        // イベントハンドラを解除
+        if (last) handler.dispose()
+    }
+
+    return writer
+}
+
+/**
+ * LLM書き込み先のファイルをEditorで開きつつ、LLM応答を書き込む関数を返す
+ * @param {vscode.TextEditor} editor
+ * @param {{backup: boolean, type: 'normal'|'diff'|'append'}} outputOpt
+ * @param {string} selectedText
+ * @param {string} wholeText
+ */
+async function prepareResultWriter(editor, outputOpt, selectedText, wholeText) {
+    switch (outputOpt.type) {
+        case 'diff':   return await prepareDiffWriter(editor, outputOpt.backup, selectedText, wholeText)
+        case 'normal': return await prepareNormalWriter(editor, outputOpt.backup)
+        case 'append': return await prepareAppendWriter(editor)
+    }
+}
 
 const FUNC_TABLE = {
     "openai": callGPTStream,
     "anthropic": callClaudeStream,
 }
 
+/**
+ * @param {vscode.TextEditor} textEditor
+ * @param {vscode.TextEditorEdit} textEditorEdit
+ * @returns
+ */
 async function callGPTAndOpenDiff(textEditor, textEditorEdit) {
     const wholeText = textEditor.document.getText()
     const selectedText = textEditor.document.getText(textEditor.selection)
@@ -103,30 +226,46 @@ async function callGPTAndOpenDiff(textEditor, textEditorEdit) {
         return
     }
     const uri = textEditor.document.uri
-    const {promptText, apiKey, model, provider} = await setupParam(uri)
+    const {settingPromptPath, apiKey, model, provider} = await setupParam(uri)
+
+    const {description, output} = await getPrompt(settingPromptPath)
 
     const callLLMStream = FUNC_TABLE[provider]
 
-    // callbackでgptの結果を受け取るが、頻度が高すぎるので
-    // 5秒おきにcontentの内容をエディタに反映する周期処理を横で走らせる
+    // LLM応答を格納するファイルを用意し表示する。diff表示か否かによって書き込む内容が変わるので、関数を作っておく
+    const resultWriter = await prepareResultWriter(textEditor, output, selectedText, wholeText)
+
     let lastUpdated = null
-    let diffShown = false
     let gptText = ""
-    await callLLMStream(selectedText, promptText, apiKey, model, (delta) => {
-        gptText += delta
+    let aborted = false
 
-        // ステータスバーには直近50文字だけ表示する
-        const statusText = gptText.slice(-50).replace(/\n/g, ' ')
-        vscode.window.setStatusBarMessage(statusText, 5000)
+    await vscode.window.withProgress({
+        title: `calling ${model}...: ${description}`,
+        location: vscode.ProgressLocation.Notification,
+        cancellable: true
+    },
+    async (progress, token) => {
+        token.onCancellationRequested(() => { aborted = true })
 
-        // 2秒経過した場合に限りエディタ内も更新
-        if (lastUpdated === null || Date.now() - lastUpdated > 2000) {
-            showGPTResult(gptText + "\n", uri, selectedText, wholeText, !diffShown)
-            diffShown = true
-            lastUpdated = Date.now()
-        }
+        await callLLMStream(selectedText, description, apiKey, model, async (delta) => {
+            if (aborted) throw new Error('Canceled')
+            gptText += delta
+
+            // ステータスバーには直近50文字だけ表示する
+            const statusText = gptText.slice(-50).replace(/\n/g, ' ')
+            vscode.window.setStatusBarMessage(statusText, 5000)
+
+            // 2秒経過した場合に限りエディタ内も更新
+            if (lastUpdated === null || Date.now() - lastUpdated > 2000) {
+                await resultWriter(gptText + "\n")
+                lastUpdated = Date.now()
+            }
+        })
+
+        await resultWriter(gptText + "\n", true)
     })
-    showGPTResult(gptText, uri, selectedText, wholeText, !diffShown)
+
+
 
     vscode.window.setStatusBarMessage('finished.', 5000)
 }
