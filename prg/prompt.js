@@ -46,22 +46,12 @@ function resolvePromptPath(configPath) {
 }
 
 /**
- * 指定されたパスにプロンプトが存在しない場合は作成を促す
+ * 指定されたパスにプロンプトを作成する
  * @param {vscode.Uri} requestedPath
  */
-async function verifyPromptFileExists(requestedPath) {
-    if (! await exists(requestedPath)) {
-        // promptファイルが無い: 通知しつつ作成を促す
-        const selection = await vscode.window.showErrorMessage(`Prompt not found [${requestedPath}]`, 'Create')
-        if (selection === 'Create') {
-            await vscode.workspace.fs.writeFile(requestedPath, Buffer.from(TEMPLATE))
-            await showBothCurrentAndNewFile(requestedPath, 'Above', false)
-        }
-
-        // promptを開いたかどうかに関わらずその後の処理は中止 (通知は済んでるのでnotificationなし)
-        throw new Error('Canceled')
-    }
-    return requestedPath
+async function createAndOpenPromptFile(requestedPath) {
+    await vscode.workspace.fs.writeFile(requestedPath, Buffer.from(TEMPLATE))
+    await showBothCurrentAndNewFile(requestedPath, 'Above', false)
 }
 
 async function selectPromptObj(promptYaml) {
@@ -117,26 +107,44 @@ async function getPrompt(settingPromptPath) {
     // Find and open prompt file
     const promptPath = await resolvePromptPath(settingPromptPath)
 
-    if (promptPath) {
+    if (!promptPath) {
+        // prompt fileのパスが定まらない → 最もデフォルトで動作させようとした場合の設定で続行
+        vscode.window.showWarningMessage(`No system prompt provided: ${PROMPT_PTAH_NOT_CONFIGURED}`)
+        return { description: '', output: { type: 'append', backup: false } }
+
+    } else if (! (await exists(promptPath))){
+        // prompt fileがない → 作成を促しつつ実行 (LLM呼び出しは続行するのでawaitしない)
+        vscode.window.showWarningMessage(`No system prompt provided: file not found [${promptPath}]`, 'Create').then(selection => {
+            if (selection === 'Create') return createAndOpenPromptFile(promptPath)
+        })
+        return { description: '', output: { type: 'append', backup: false } }
+
+    } else {
+        // prompt fileがある → 選択して実行
         const promptYaml = await vscode.workspace.openTextDocument(promptPath).then(doc => doc.getText())
         // Display a UI to select the desired prompt from within the .prompt file for use with QuickPick
         const promptObj = await selectPromptObj(promptYaml)
         return await resolvePromptOption(promptObj)
-
-    } else {
-        // prompt fileのパスが定まらない → 最もデフォルトで動作させようとした場合の設定で続行
-        vscode.window.showWarningMessage(`No system prompt was passed: ${PROMPT_PTAH_NOT_CONFIGURED}`)
-        return { description: '', output: { type: 'append', backup: false } }
     }
 }
 
 // promptファイルをエディタ画面で開く
 async function openPromptFile(config) {
     const promptPath = await resolvePromptPath(config.prompt_path)
+
     if(!promptPath) {
+        // prompt fileのパスが定まらない → エラー表示
         throw new Error(`Failed to open prompt file: ${PROMPT_PTAH_NOT_CONFIGURED}`)
+
+    } else if (! await exists(promptPath)) {
+        // promptファイルが無い: 通知しつつ作成を促す
+        const selection = await vscode.window.showErrorMessage(`Prompt not found [${promptPath}]`, 'Create')
+        if (selection === 'Create') await createAndOpenPromptFile(promptPath)
+
+    } else {
+        // promptファイルがある: 開く
+        await showBothCurrentAndNewFile(promptPath, 'Above', false)
     }
-    await showBothCurrentAndNewFile(promptPath, 'Above', false)
 }
 
 module.exports = { openPromptFile, getPrompt }

@@ -1,10 +1,12 @@
 {
     "name": "simple-text-refine",
-    "version": "0.1.0",
+    "version": "0.1.9",
     "engines": {
         "vscode": "^1.84.1"
     },
-    "extensionKind": ["workspace"],
+    "extensionKind": [
+        "workspace"
+    ],
     "repository": "https://github.com/yasuraok/SimpleTextRefine.git",
     "main": "./prg/extension.js",
     "activationEvents": [
