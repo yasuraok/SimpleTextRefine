@@ -3,11 +3,22 @@ name: make vsce package
 env:
   name: simple-text-refine
 
-on: [push, workflow_dispatch]
+on:
+  push:
+    branches: "*"
+  workflow_dispatch:
+    inputs:
+      publish:
+        type: boolean
+        required: true
+        default: false
 
 jobs:
   make-vsce:
     runs-on: ubuntu-latest
+    env:
+      VERSION: ''
+      ARTIFACT_SUFFIX: ''
     steps:
       - uses: actions/checkout@v4
 
@@ -15,24 +26,46 @@ jobs:
         with:
           node-version: '20.x'
 
-      # mainブランチ以外は、package.json中のversionにコミットハッシュをappendする、--pre-releaseオプションを付ける
-      - name: Build dev
-        if: ${{ github.ref != 'refs/heads/main' }}
+      - name: Prepare
         run: |
-          VERSION=$(jq -r .version package.json)
-          sed -i -e 's/"version": "\(.*\)"/"version": "\1+${{ github.sha }}"/' package.json
           npm ci
-          npx vsce package --pre-release -o ${{ env.name }}-${VERSION}+${{ github.sha }}.vsix
+          echo "VERSION=$(jq -r .version package.json)" >> $GITHUB_ENV
+
+      # main/devブランチ以外は、package.json中のversionにコミットハッシュをappendする、--pre-releaseオプションを付ける
+      - name: Build feature branch
+        if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/dev'
+        run: |
+          sed -i -e 's/"version": "\(.*\)"/"version": "\1+${{ github.sha }}"/' package.json
+          npx vsce package --pre-release -o ${{ env.name }}-${{ env.VERSION }}+${{ github.sha }}.vsix
+
+          echo "ARTIFACT_SUFFIX=${{ env.VERSION }}+${{ github.sha }}" >> $GITHUB_ENV
+
+      # devブランチ場合は、versionはそのままでpre-releaseだけつける
+      # https://code.visualstudio.com/api/working-with-extensions/publishing-extension#prerelease-extensions
+      - name: Build dev (pre-release)
+        if: github.ref == 'refs/heads/dev'
+        run: |
+          npx vsce package --pre-release -o ${{ env.name }}-${{ env.VERSION }}+pre-release.vsix
+
+          echo "ARTIFACT_SUFFIX=${{ env.VERSION }}+pre-release" >> $GITHUB_ENV
 
       # mainブランチ場合は、そのままpackage
       - name: Build main
-        if: ${{ github.ref == 'refs/heads/main' }}
+        if: github.ref == 'refs/heads/main'
         run: |
-          npm ci
-          npx vsce package
+          npx vsce package -o ${{ env.name }}-${{ env.VERSION }}.vsix
+
+          echo "ARTIFACT_SUFFIX=${{ env.VERSION }}" >> $GITHUB_ENV
+
+      - name: Publish
+        if: inputs.publish
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          npx vsce publish
 
       # 保存 (VSCode market placeに自動アップロードはいったんしない)
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.name }}
+          name: ${{ env.name }}-${{ env.ARTIFACT_SUFFIX }}
           path: "*.vsix"
