@@ -2,6 +2,7 @@ name: make vsce package
 
 env:
   name: simple-text-refine
+  skip_ci: '[skip ci]' # https://docs.github.com/ja/actions/managing-workflow-runs/skipping-workflow-runs
   increment: patch
 
 on:
@@ -63,7 +64,7 @@ jobs:
       - name: Build dev (pre-release)
         if: github.ref == 'refs/heads/dev'
         run: |
-          VERSION=$(npm version ${{ env.increment }})
+          VERSION=$(npm version ${{ env.increment }} -m "%s ${{ env.skip_ci}}")
           PACKAGE_NAME="${{ env.name }}-${VERSION}+pre-release"
           npx vsce package --pre-release -o "${PACKAGE_NAME}.vsix"
 
@@ -76,7 +77,7 @@ jobs:
       - name: Build main
         if: github.ref == 'refs/heads/main'
         run: |
-          VERSION=$(npm version ${{ env.increment }})
+          VERSION=$(npm version ${{ env.increment }} -m "%s ${{ env.skip_ci}}")
           PACKAGE_NAME="${{ env.name }}-${VERSION}"
           npx vsce package               -o "${PACKAGE_NAME}.vsix"
 
