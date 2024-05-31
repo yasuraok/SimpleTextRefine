@@ -41,13 +41,14 @@ jobs:
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     environment: vsce_publish
-    permissions:
-      contents: write
     env:
       PACKAGE_NAME: ''
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
     steps:
+      # https://github.com/orgs/community/discussions/25305#discussioncomment-5582031
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.MY_GITHUB_PAT }}
       - uses: actions/setup-node@v4
         with:
           node-version: '20.x'
