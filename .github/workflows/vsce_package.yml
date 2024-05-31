@@ -2,22 +2,18 @@ name: make vsce package
 
 env:
   name: simple-text-refine
+  increment: patch
 
 on:
   push:
     branches: "*"
-  workflow_dispatch:
-    inputs:
-      publish:
-        type: boolean
-        required: true
-        default: false
 
 jobs:
   make-vsce:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
-      VERSION: ''
       PACKAGE_NAME: ''
     steps:
       - uses: actions/checkout@v4
@@ -29,14 +25,15 @@ jobs:
       - name: Prepare
         run: |
           npm ci
-          echo "VERSION=$(jq -r .version package.json)" >> $GITHUB_ENV
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
 
       # main/devブランチ以外は、package.json中のversionにコミットハッシュをappendする、--pre-releaseオプションを付ける
       - name: Build feature branch
         if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/dev'
         run: |
-          sed -i -e 's/"version": "\(.*\)"/"version": "\1+${{ github.sha }}"/' package.json
-          PACKAGE_NAME=${{ env.name }}-${{ env.VERSION }}+${{ github.sha }}
+          VERSION=$(npm version prerelease --preid=${{ github.sha }} --no-git-tag-version)
+          PACKAGE_NAME="${{ env.name }}-${VERSION}"
           npx vsce package --pre-release -o "${PACKAGE_NAME}.vsix"
 
           echo "PACKAGE_NAME=${PACKAGE_NAME}" >> $GITHUB_ENV
@@ -45,27 +42,32 @@ jobs:
       # https://code.visualstudio.com/api/working-with-extensions/publishing-extension#prerelease-extensions
       - name: Build dev (pre-release)
         if: github.ref == 'refs/heads/dev'
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
-          PACKAGE_NAME=${{ env.name }}-${{ env.VERSION }}+pre-release
+          VERSION=$(npm version ${{ env.increment }})
+          PACKAGE_NAME="${{ env.name }}-${VERSION}+pre-release"
           npx vsce package --pre-release -o "${PACKAGE_NAME}.vsix"
+
+          git push origin HEAD
+          npx vsce publish --packagePath "${PACKAGE_NAME}.vsix"
 
           echo "PACKAGE_NAME=${PACKAGE_NAME}" >> $GITHUB_ENV
 
       # mainブランチ場合は、そのままpackage
       - name: Build main
         if: github.ref == 'refs/heads/main'
-        run: |
-          PACKAGE_NAME=${{ env.name }}-${{ env.VERSION }}+pre-release
-          npx vsce package               -o "${PACKAGE_NAME}.vsix"
-
-          echo "PACKAGE_NAME=${PACKAGE_NAME}" >> $GITHUB_ENV
-
-      - name: Publish
-        if: inputs.publish
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
-          npx vsce publish --packagePath "${{ env.PACKAGE_NAME }}.vsix"
+          VERSION=$(npm version ${{ env.increment }})
+          PACKAGE_NAME="${{ env.name }}-${VERSION}"
+          npx vsce package               -o "${PACKAGE_NAME}.vsix"
+
+          git push origin HEAD
+          npx vsce publish --packagePath "${PACKAGE_NAME}.vsix"
+
+          echo "PACKAGE_NAME=${PACKAGE_NAME}" >> $GITHUB_ENV
 
       # 保存 (VSCode market placeに自動アップロードはいったんしない)
       - uses: actions/upload-artifact@v4
