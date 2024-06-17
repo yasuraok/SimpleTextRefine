@@ -64,13 +64,19 @@ async function setupParam(uri){
     return {settingPromptPath, apiKey, model, provider}
 }
 
+/**
+ * @param {vscode.Uri} uri
+ */
 function makeCachePath(uri){
     const wf = vscode.workspace.workspaceFolders
     if(!wf){
         throw new Error('Error: workspace is not selected.')
     }
-    const relPath = vscode.workspace.asRelativePath(uri)
-    const cachePath = vscode.Uri.joinPath(wf[0].uri, '.vscode', EXT_NAME, 'cache', relPath)
+    const cacheRoot = vscode.Uri.joinPath(wf[0].uri, '.vscode', EXT_NAME, 'cache')
+    if(uri.fsPath.startsWith(cacheRoot.fsPath)){
+        throw new Error('Error: this file might be LLM response cache. Please select your own file.')
+    }
+    const cachePath = vscode.Uri.joinPath(cacheRoot, vscode.workspace.asRelativePath(uri))
     // mkdir
     vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(cachePath, '..'))
     return cachePath
