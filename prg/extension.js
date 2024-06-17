@@ -174,12 +174,19 @@ async function prepareAppendWriter(editor) {
 
     // LLM応答を書き込む関数を作る
     const writer = async (llmText, last = false) => {
-        // LLMテキストを更新。この操作でもイベントハンドラが呼ばれるが、if文に入らずoffsetは更新されない
-        await editor.edit(editBuilder => {
-            const start = editor.document.positionAt(llmStartOffset)
-            const end   = editor.document.positionAt(llmEndOffset)
-            editBuilder.replace(new vscode.Range(start, end), llmText)
-        })
+        // LLMテキストを更新。この操作でもonDidChangeTextDocumentが呼ばれるが、if文に入らずoffsetは更新されない
+
+        const start = editor.document.positionAt(llmStartOffset)
+        const end   = editor.document.positionAt(llmEndOffset)
+
+        // editor.editだと別タブを表にした時点でエラーになってしまう。vscode.WorkspaceEditなら大丈夫らしい
+        // await editor.edit(editBuilder => {
+        //     editBuilder.replace(new vscode.Range(start, end), llmText)
+        // })
+
+        const workEdits = new vscode.WorkspaceEdit()
+        workEdits.replace(editor.document.uri, new vscode.Range(start, end), llmText),
+        await vscode.workspace.applyEdit(workEdits)
 
         // LLMテキストが挿入されたので、その分だけEndOffsetを更新
         const crlf = editor.document.eol === vscode.EndOfLine.CRLF
