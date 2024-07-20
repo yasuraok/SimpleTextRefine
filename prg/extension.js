@@ -64,13 +64,19 @@ async function setupParam(uri){
     return {settingPromptPath, apiKey, model, provider}
 }
 
+/**
+ * @param {vscode.Uri} uri
+ */
 function makeCachePath(uri){
     const wf = vscode.workspace.workspaceFolders
     if(!wf){
         throw new Error('Error: workspace is not selected.')
     }
-    const relPath = vscode.workspace.asRelativePath(uri)
-    const cachePath = vscode.Uri.joinPath(wf[0].uri, '.vscode', EXT_NAME, 'cache', relPath)
+    const cacheRoot = vscode.Uri.joinPath(wf[0].uri, '.vscode', EXT_NAME, 'cache')
+    if(uri.fsPath.startsWith(cacheRoot.fsPath)){
+        throw new Error('Error: this file might be LLM response cache. Please select your own file.')
+    }
+    const cachePath = vscode.Uri.joinPath(cacheRoot, vscode.workspace.asRelativePath(uri))
     // mkdir
     vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(cachePath, '..'))
     return cachePath
@@ -174,12 +180,19 @@ async function prepareAppendWriter(editor) {
 
     // LLM応答を書き込む関数を作る
     const writer = async (llmText, last = false) => {
-        // LLMテキストを更新。この操作でもイベントハンドラが呼ばれるが、if文に入らずoffsetは更新されない
-        await editor.edit(editBuilder => {
-            const start = editor.document.positionAt(llmStartOffset)
-            const end   = editor.document.positionAt(llmEndOffset)
-            editBuilder.replace(new vscode.Range(start, end), llmText)
-        })
+        // LLMテキストを更新。この操作でもonDidChangeTextDocumentが呼ばれるが、if文に入らずoffsetは更新されない
+
+        const start = editor.document.positionAt(llmStartOffset)
+        const end   = editor.document.positionAt(llmEndOffset)
+
+        // editor.editだと別タブを表にした時点でエラーになってしまう。vscode.WorkspaceEditなら大丈夫らしい
+        // await editor.edit(editBuilder => {
+        //     editBuilder.replace(new vscode.Range(start, end), llmText)
+        // })
+
+        const workEdits = new vscode.WorkspaceEdit()
+        workEdits.replace(editor.document.uri, new vscode.Range(start, end), llmText),
+        await vscode.workspace.applyEdit(workEdits)
 
         // LLMテキストが挿入されたので、その分だけEndOffsetを更新
         const crlf = editor.document.eol === vscode.EndOfLine.CRLF
