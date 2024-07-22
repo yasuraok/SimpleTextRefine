@@ -7,6 +7,13 @@ const { parse, PromptArray, Prompt } = require('./type')
 const EXT_NAME = "simple-text-refine"
 
 const TEMPLATE = `
+- label: チャット
+  description: |
+    質問にできるだけ技術的に正確に回答してください。
+    明確に質問がある場合はそれに対する回答を、何かしら情報を整理していると思われる文章の場合は、その続きに相当する情報を返答してください。
+    長くても500字くらいに収めてください。
+  output:
+    type: append
 - label: 添削
   description: |
     作成中の技術文書を添削し修正案を返してください。
@@ -17,13 +24,6 @@ const TEMPLATE = `
   description: |
     メールやチャットの投稿下書きを書いているユーザーから作成中の文章が与えられるので、添削し修正案を返してください。
     書き始めで文章が不足していたり不連続と思われる場合はそれを補完し、ほぼ完成している場合は文体の改善などをメインに修正してください。
-- label: チャット
-  description: |
-    質問にできるだけ技術的に正確に回答してください。
-    明確に質問がある場合はそれに対する回答を、何かしら情報を整理していると思われる文章の場合は、その続きに相当する情報を返答してください。
-    長くても500字くらいに収めてください。
-  output:
-    type: append
 `.trimStart()
 
 const PROMPT_PTAH_NOT_CONFIGURED = 'workspace is unselected and the default prompt path is not configured.'
