@@ -10,9 +10,12 @@ const DEFAULT_MODEL = "openai/gpt-4o-mini"
 
 const MODELS = [
     "openai/gpt-4o",
+    "openai/gpt-4o-2024-08-06",
     "openai/gpt-4-turbo",
     DEFAULT_MODEL,
     "openai/gpt-3.5-turbo",
+    "openai/o1-preview",
+    "openai/o1-mini",
     "anthropic/claude-3-5-sonnet-20240620",
     "anthropic/claude-3-opus-20240229",
     "anthropic/claude-3-sonnet-20240229",
