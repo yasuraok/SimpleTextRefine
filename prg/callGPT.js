@@ -3,9 +3,15 @@ const vscode = require('vscode')
 const { Buffer } = require('buffer')
 const OpenAI = require('openai')
 
-function makeSystemMsg(prompt) {
+// https://platform.openai.com/docs/guides/reasoning/beta-limitations
+const MODELS_ROLE_LIMITED = [
+    "o1-preview",
+    "o1-mini",
+]
+
+function makeSystemMsg(prompt, model) {
     return {
-        role: "system",
+        role: MODELS_ROLE_LIMITED.includes(model) ? "assistant" : "system",
         content: prompt,
     }
 }
@@ -21,7 +27,7 @@ function makeUserMsg(text) {
 async function callGPTStream(text, systemPrompt, apiKey, model, callback) {
     const openai = new OpenAI({apiKey})
 
-    const messages = [makeSystemMsg(systemPrompt), makeUserMsg(text)]
+    const messages = [makeSystemMsg(systemPrompt, model), makeUserMsg(text)]
 
     const responses = await openai.chat.completions.create({
         model,
