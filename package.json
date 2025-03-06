@@ -1,6 +1,6 @@
 {
     "name": "simple-text-refine",
-    "version": "0.1.15",
+    "version": "0.1.17",
     "engines": {
         "vscode": "^1.84.1"
     },
